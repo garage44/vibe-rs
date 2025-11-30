@@ -37,7 +37,7 @@ pub fn load_regions(
             }
         };
 
-        let rows = stmt.query_map([], |row| {
+        let rows_result = stmt.query_map([], |row| {
             Ok(RegionRow {
                 id: row.get(0)?,
                 name: row.get(1)?,
@@ -49,9 +49,15 @@ pub fn load_regions(
                 created_at: row.get(7)?,
                 updated_at: row.get(8)?,
             })
-        })?;
+        });
 
-        rows.collect()
+        match rows_result {
+            Ok(rows) => rows.collect(),
+            Err(e) => {
+                eprintln!("Error querying regions: {}", e);
+                return;
+            }
+        }
     };
 
     match regions_result {
@@ -97,7 +103,7 @@ pub fn load_prims(
             }
         };
 
-        let rows = stmt.query_map([], |row| {
+        let rows_result = stmt.query_map([], |row| {
             Ok(PrimRow {
                 id: row.get(0)?,
                 region_id: row.get(1)?,
@@ -118,9 +124,15 @@ pub fn load_prims(
                 created_at: row.get(16)?,
                 updated_at: row.get(17)?,
             })
-        })?;
+        });
 
-        rows.collect()
+        match rows_result {
+            Ok(rows) => rows.collect(),
+            Err(e) => {
+                eprintln!("Error querying prims: {}", e);
+                return;
+            }
+        }
     };
 
     match prims_result {

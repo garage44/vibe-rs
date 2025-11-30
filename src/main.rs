@@ -3,7 +3,7 @@ use bevy::prelude::*;
 mod components;
 mod resources;
 mod systems;
-pub mod db;
+mod db;
 
 use components::Avatar;
 use resources::{Database, GameState, AvatarState};
@@ -28,8 +28,8 @@ fn main() {
             setup_lighting,
         ))
         .add_systems(Update, (
-            database::load_regions.run_if(resource_exists::<Database>),
-            database::load_prims.run_if(resource_exists::<Database>),
+            database::load_regions.run_if(|db: Option<Res<Database>>| db.is_some()),
+            database::load_prims.run_if(|db: Option<Res<Database>>| db.is_some()),
             rendering::spawn_regions,
             rendering::spawn_prims,
             avatar::spawn_avatar,

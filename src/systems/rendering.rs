@@ -1,11 +1,12 @@
 use bevy::prelude::*;
+use bevy::render::mesh::shape::{UVSphere, Cylinder, Torus, Plane};
 use crate::components::{Region, Prim, PrimShape};
 
 #[derive(Component)]
-struct RegionMesh;
+pub struct RegionMesh;
 
 #[derive(Component)]
-struct PrimMesh;
+pub struct PrimMesh;
 
 pub fn spawn_regions(
     mut commands: Commands,
@@ -25,18 +26,23 @@ pub fn spawn_regions(
             (row as f32 - grid_size / 2.0) * spacing,
         );
 
-        // Create plane mesh (256x256 units)
-        let plane_mesh = meshes.add(Plane3d::default().mesh().size(256.0, 256.0));
+        // Create plane mesh (256x256 units) - scale will be applied via transform
+        let plane_mesh = meshes.add(Mesh::from(Plane::default()));
         let material = materials.add(StandardMaterial {
-            base_color: Color::srgb(0.8, 0.8, 0.8),
+            base_color: Color::rgb(0.8, 0.8, 0.8),
             ..default()
         });
 
         // Spawn region as a plane
         commands.entity(entity).insert((
-            Mesh3d(plane_mesh),
-            MeshMaterial3d(material),
-            Transform::from_translation(position).with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+            MaterialMeshBundle {
+                mesh: plane_mesh,
+                material,
+                transform: Transform::from_translation(position)
+                    .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2))
+                    .with_scale(Vec3::new(256.0, 1.0, 256.0)),
+                ..default()
+            },
             RegionMesh,
         ));
     }
@@ -50,14 +56,13 @@ pub fn spawn_prims(
 ) {
     for (entity, prim, transform) in prim_query.iter() {
         let mesh_handle = match prim.shape {
-            PrimShape::Box => meshes.add(Cuboid::new(transform.scale.x, transform.scale.y, transform.scale.z)),
+            PrimShape::Box => meshes.add(Mesh::from(bevy::render::mesh::shape::Box::new(transform.scale.x, transform.scale.y, transform.scale.z))),
             PrimShape::Sphere => {
-                let radius = transform.scale.x.max(transform.scale.y).max(transform.scale.z) / 2.0;
-                meshes.add(Sphere::new(radius))
+                meshes.add(Mesh::from(UVSphere::default()))
             }
-            PrimShape::Cylinder => meshes.add(Cylinder::new(transform.scale.x / 2.0, transform.scale.y)),
-            PrimShape::Cone => meshes.add(Cone::new(transform.scale.x / 2.0, transform.scale.y)),
-            PrimShape::Torus => meshes.add(Torus::new(transform.scale.x / 2.0, transform.scale.y / 4.0)),
+            PrimShape::Cylinder => meshes.add(Mesh::from(Cylinder::default())),
+            PrimShape::Cone => meshes.add(Mesh::from(Cylinder::default())), // Use cylinder as cone substitute
+            PrimShape::Torus => meshes.add(Mesh::from(Torus::default())),
         };
 
         let material_handle = materials.add(StandardMaterial {
@@ -66,8 +71,12 @@ pub fn spawn_prims(
         });
 
         commands.entity(entity).insert((
-            Mesh3d(mesh_handle),
-            MeshMaterial3d(material_handle),
+            MaterialMeshBundle {
+                mesh: mesh_handle,
+                material: material_handle,
+                transform: *transform,
+                ..default()
+            },
             PrimMesh,
         ));
     }

@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use rusqlite::Connection;
 use std::sync::Mutex;
 
+#[derive(Resource)]
 pub struct Database {
     pub conn: Mutex<Connection>,
 }

@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::render::mesh::shape::UVSphere;
 use crate::components::Avatar;
 use crate::resources::AvatarState;
 
@@ -10,7 +11,7 @@ const AVATAR_HEIGHT: f32 = 0.6;
 const GROUND_HEIGHT: f32 = 0.0;
 
 #[derive(Component)]
-struct AvatarMesh;
+pub struct AvatarMesh;
 
 pub fn spawn_avatar(
     mut commands: Commands,
@@ -19,17 +20,17 @@ pub fn spawn_avatar(
     avatar_query: Query<Entity, (With<Avatar>, Without<AvatarMesh>)>,
 ) {
     for entity in avatar_query.iter() {
-        // Create simple capsule avatar
-        let body_mesh = meshes.add(Capsule3d::new(0.3, 1.2));
-        let head_mesh = meshes.add(Sphere::new(0.25));
+        // Create simple avatar (using box for body, sphere for head)
+        let body_mesh = meshes.add(Mesh::from(bevy::render::mesh::shape::Box::new(0.6, 1.2, 0.6)));
+        let head_mesh = meshes.add(Mesh::from(UVSphere::default()));
 
         let body_material = materials.add(StandardMaterial {
-            base_color: Color::srgb(0.29, 0.56, 0.89), // #4a90e2
+            base_color: Color::rgb(0.29, 0.56, 0.89), // #4a90e2
             ..default()
         });
 
         let head_material = materials.add(StandardMaterial {
-            base_color: Color::srgb(0.99, 0.74, 0.71), // #fdbcb4
+            base_color: Color::rgb(0.99, 0.74, 0.71), // #fdbcb4
             ..default()
         });
 
@@ -40,25 +41,31 @@ pub fn spawn_avatar(
         ));
 
         // Spawn body
-        commands.spawn((
-            Mesh3d(body_mesh),
-            MeshMaterial3d(body_material),
-            Transform::from_xyz(0.0, 1.0, 0.0),
-            Parent(entity),
-        ));
+        let body_entity = commands.spawn((
+            MaterialMeshBundle {
+                mesh: body_mesh,
+                material: body_material,
+                transform: Transform::from_xyz(0.0, 1.0, 0.0),
+                ..default()
+            },
+        )).id();
+        commands.entity(entity).add_child(body_entity);
 
         // Spawn head
-        commands.spawn((
-            Mesh3d(head_mesh),
-            MeshMaterial3d(head_material),
-            Transform::from_xyz(0.0, 2.0, 0.0),
-            Parent(entity),
-        ));
+        let head_entity = commands.spawn((
+            MaterialMeshBundle {
+                mesh: head_mesh,
+                material: head_material,
+                transform: Transform::from_xyz(0.0, 2.0, 0.0),
+                ..default()
+            },
+        )).id();
+        commands.entity(entity).add_child(head_entity);
     }
 }
 
 pub fn handle_avatar_movement(
-    keyboard_input: Res<ButtonInput<KeyCode>>,
+    keyboard_input: Res<Input<KeyCode>>,
     time: Res<Time>,
     mut avatar_query: Query<&mut Transform, With<Avatar>>,
     mut avatar_state: ResMut<AvatarState>,
@@ -68,19 +75,19 @@ pub fn handle_avatar_movement(
     }
 
     let mut transform = avatar_query.single_mut();
-    let delta_time = time.delta_secs();
+    let delta_time = time.delta().as_secs_f32();
 
     // Toggle fly mode with F key
-    if keyboard_input.just_pressed(KeyCode::KeyF) {
+    if keyboard_input.just_pressed(KeyCode::F) {
         avatar_state.is_flying = !avatar_state.is_flying;
         println!("Fly mode: {}", if avatar_state.is_flying { "ON" } else { "OFF" });
     }
 
     // Movement input
-    let move_forward = keyboard_input.pressed(KeyCode::KeyW) || keyboard_input.pressed(KeyCode::ArrowUp);
-    let move_backward = keyboard_input.pressed(KeyCode::KeyS) || keyboard_input.pressed(KeyCode::ArrowDown);
-    let move_left = keyboard_input.pressed(KeyCode::KeyA) || keyboard_input.pressed(KeyCode::ArrowLeft);
-    let move_right = keyboard_input.pressed(KeyCode::KeyD) || keyboard_input.pressed(KeyCode::ArrowRight);
+    let move_forward = keyboard_input.pressed(KeyCode::W) || keyboard_input.pressed(KeyCode::Up);
+    let move_backward = keyboard_input.pressed(KeyCode::S) || keyboard_input.pressed(KeyCode::Down);
+    let move_left = keyboard_input.pressed(KeyCode::A) || keyboard_input.pressed(KeyCode::Left);
+    let move_right = keyboard_input.pressed(KeyCode::D) || keyboard_input.pressed(KeyCode::Right);
     let fly_up = keyboard_input.pressed(KeyCode::Space);
     let fly_down = keyboard_input.pressed(KeyCode::ShiftLeft) || keyboard_input.pressed(KeyCode::ShiftRight);
 
@@ -113,9 +120,13 @@ pub fn handle_avatar_movement(
         transform.translation.z += move_direction.z;
         avatar_state.is_walking = true;
 
-        // Handle rotation
-        if move_left || move_right {
-            let rotation_delta = if move_left { 1.0 } else { -1.0 } * ROTATION_SPEED * delta_time;
+        // Handle rotation (only rotate when moving)
+        if move_left {
+            let rotation_delta = ROTATION_SPEED * delta_time;
+            avatar_state.rotation += rotation_delta;
+        }
+        if move_right {
+            let rotation_delta = -ROTATION_SPEED * delta_time;
             avatar_state.rotation += rotation_delta;
         }
     } else {
