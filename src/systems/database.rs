@@ -65,6 +65,7 @@ pub fn load_regions(
             let count = regions.len();
             for region in regions {
                 // Create region entity (rendering will be handled separately)
+                // Only add Region component, no Transform or other components
                 commands.spawn(Region {
                     id: region.id,
                     name: region.name.clone(),
@@ -74,6 +75,7 @@ pub fn load_regions(
                     tile_y: region.tile_y,
                     tile_z: region.tile_z,
                 });
+                println!("DEBUG: Spawned region entity for '{}'", region.name);
             }
             println!("Loaded {} regions", count);
             game_state.regions_loaded = true;

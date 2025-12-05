@@ -22,20 +22,40 @@ A Bevy-based 3D virtual world application.
 
 - Rust and Cargo installed (see [rustup.rs](https://rustup.rs/))
 
+**For Fedora/Distrobox users:**
+```bash
+# Run the setup script (installs all required dependencies)
+./setup-fedora.sh
+```
+
 ### Running in Development Mode
 
-To run the application with debug symbols and hot reloading:
+Bevy is configured for fast compilation. To run:
 
 ```bash
 cargo run
 ```
 
+**Fast Compilation:**
+- Dev profile is optimized (level 1 for your code, level 3 for dependencies)
+- Bevy compiles quickly in debug mode
+- First build takes longer (~1-2 minutes), subsequent builds are much faster (~5-10 seconds for code changes)
+
 This will:
-1. Compile the project in debug mode (faster compilation, slower runtime)
+1. Compile the project in debug mode
 2. Initialize the SQLite database at `data/regions.db` if it doesn't exist
 3. Load regions and prims from the database
 4. Render regions as planes and prims as 3D shapes
 5. Spawn an avatar that you can control
+
+**For even faster compilation** (optional):
+- Install `lld` linker: `sudo pacman -S lld`
+- Create `.cargo/config.toml` with:
+  ```toml
+  [target.x86_64-unknown-linux-gnu]
+  linker = "clang"
+  rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+  ```
 
 ### Building for Release
 

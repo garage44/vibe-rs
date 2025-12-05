@@ -11,3 +11,15 @@ bevy = { version = "0.12", default-features = false, features = [
 ] }
 rusqlite = { version = "0.30", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
+ureq = { version = "2.9", features = ["gzip"] }
+image = "0.24"
+
+[profile.dev]
+opt-level = 1
+incremental = true
+codegen-units = 1  # Better optimization, slightly slower compile
+debug = 1  # Line numbers only, faster than full debug
+
+[profile.dev.package."*"]
+opt-level = 3
+codegen-units = 1

@@ -34,33 +34,31 @@ pub fn spawn_avatar(
             ..default()
         });
 
+        // Add mesh components (transform should already exist from spawn_avatar_entity)
+        // Make sure avatar is visible
         commands.entity(entity).insert((
-            Transform::from_xyz(0.0, 2.2, 0.0),
-            Visibility::default(),
+            Visibility::Visible,
             AvatarMesh,
         ));
 
-        // Spawn body
-        let body_entity = commands.spawn((
-            MaterialMeshBundle {
+        // Spawn children using with_children - this ensures proper parent-child relationship
+        commands.entity(entity).with_children(|parent| {
+            // Spawn body as child
+            parent.spawn(MaterialMeshBundle {
                 mesh: body_mesh,
                 material: body_material,
-                transform: Transform::from_xyz(0.0, 1.0, 0.0),
+                transform: Transform::from_xyz(0.0, 1.0, 0.0), // Local transform relative to parent
                 ..default()
-            },
-        )).id();
-        commands.entity(entity).add_child(body_entity);
+            });
 
-        // Spawn head
-        let head_entity = commands.spawn((
-            MaterialMeshBundle {
+            // Spawn head (sphere) as child
+            parent.spawn(MaterialMeshBundle {
                 mesh: head_mesh,
                 material: head_material,
-                transform: Transform::from_xyz(0.0, 2.0, 0.0),
+                transform: Transform::from_xyz(0.0, 2.0, 0.0), // Local transform relative to parent
                 ..default()
-            },
-        )).id();
-        commands.entity(entity).add_child(head_entity);
+            });
+        });
     }
 }
 
@@ -69,13 +67,23 @@ pub fn handle_avatar_movement(
     time: Res<Time>,
     mut avatar_query: Query<&mut Transform, With<Avatar>>,
     mut avatar_state: ResMut<AvatarState>,
+    camera_state: Res<crate::resources::CameraState>,
 ) {
+    // Don't move avatar if in free camera mode (camera handles movement)
+    if camera_state.mode == crate::resources::CameraMode::Free {
+        return;
+    }
     if avatar_query.is_empty() {
         return;
     }
 
     let mut transform = avatar_query.single_mut();
     let delta_time = time.delta().as_secs_f32();
+
+    // Sync initial position from transform if needed
+    if (avatar_state.position - transform.translation).length() > 0.1 {
+        avatar_state.position = transform.translation;
+    }
 
     // Toggle fly mode with F key
     if keyboard_input.just_pressed(KeyCode::F) {
@@ -91,7 +99,7 @@ pub fn handle_avatar_movement(
     let fly_up = keyboard_input.pressed(KeyCode::Space);
     let fly_down = keyboard_input.pressed(KeyCode::ShiftLeft) || keyboard_input.pressed(KeyCode::ShiftRight);
 
-    // Calculate movement direction
+    // Calculate movement direction in world space
     let mut move_direction = Vec3::ZERO;
     if move_forward {
         move_direction.z -= 1.0;
@@ -106,18 +114,16 @@ pub fn handle_avatar_movement(
         move_direction.x += 1.0;
     }
 
-    // Normalize and apply speed
+    // Calculate movement delta
+    let mut move_delta = Vec3::ZERO;
     if move_direction.length() > 0.0 {
         move_direction = move_direction.normalize();
         let speed = if avatar_state.is_flying { FLY_SPEED } else { WALK_SPEED };
-        move_direction *= speed * delta_time;
+        let move_vector = move_direction * speed * delta_time;
 
-        // Rotate movement direction based on avatar rotation
-        let rotation_matrix = Mat3::from_rotation_y(avatar_state.rotation);
-        move_direction = rotation_matrix * move_direction;
-
-        transform.translation.x += move_direction.x;
-        transform.translation.z += move_direction.z;
+        // Rotate movement direction based on avatar rotation (Y-axis rotation)
+        let rotation_quat = Quat::from_rotation_y(avatar_state.rotation);
+        move_delta = rotation_quat * move_vector;
         avatar_state.is_walking = true;
 
         // Handle rotation (only rotate when moving)
@@ -134,29 +140,38 @@ pub fn handle_avatar_movement(
     }
 
     // Handle vertical movement
+    let mut final_translation = transform.translation + move_delta;
     if avatar_state.is_flying {
         if fly_up {
-            transform.translation.y += FLY_SPEED * delta_time;
+            final_translation.y += FLY_SPEED * delta_time;
         } else if fly_down {
             let min_height = GROUND_HEIGHT + AVATAR_HEIGHT / 2.0;
-            if transform.translation.y > min_height + 0.1 {
-                transform.translation.y -= FLY_SPEED * delta_time;
+            if final_translation.y > min_height + 0.1 {
+                final_translation.y -= FLY_SPEED * delta_time;
             }
         }
     } else {
         // Walking mode: apply gravity
-        transform.translation.y += GRAVITY * delta_time;
+        final_translation.y += GRAVITY * delta_time;
 
         // Enforce minimum height
         let min_height = GROUND_HEIGHT + AVATAR_HEIGHT / 2.0;
-        if transform.translation.y < min_height {
-            transform.translation.y = min_height;
+        if final_translation.y < min_height {
+            final_translation.y = min_height;
         }
     }
 
-    // Update rotation
+    // Update transform fields directly - this ensures Bevy's change detection works
+    // Modifying fields directly is more reliable than replacing the entire struct
+    let old_pos = transform.translation;
+    transform.translation = final_translation;
     transform.rotation = Quat::from_rotation_y(avatar_state.rotation);
 
-    // Update avatar state position
+    // Debug: print movement and verify transform is actually changing
+    if move_delta.length() > 0.001 || (old_pos - final_translation).length() > 0.001 {
+        println!("Avatar transform updated: {:?} -> {:?}, move_delta={:?}", old_pos, transform.translation, move_delta);
+    }
+
+    // Update avatar state position to match transform (important for camera following)
     avatar_state.position = transform.translation;
 }

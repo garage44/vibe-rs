@@ -57,7 +57,45 @@ pub fn init_database(db_path: &str) -> Result<Connection> {
         [],
     )?;
 
+    // Seed default region if database is empty
+    seed_default_region(&conn)?;
+
     Ok(conn)
+}
+
+/// Seed a default region (Groningen) if no regions exist
+fn seed_default_region(conn: &Connection) -> Result<()> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM regions",
+        [],
+        |row| row.get(0),
+    )?;
+
+    if count == 0 {
+        use crate::utils::tile_utils::{lat_lng_to_tile, REGION_ZOOM_LEVEL};
+
+        // Default region at Groningen, Netherlands
+        let groningen_lat = 53.2194;
+        let groningen_lng = 6.5665;
+        let (tile_x, tile_y) = lat_lng_to_tile(groningen_lat, groningen_lng, REGION_ZOOM_LEVEL);
+
+        conn.execute(
+            "INSERT INTO regions (name, latitude, longitude, tile_x, tile_y, tile_z, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'), datetime('now'))",
+            rusqlite::params![
+                "Groningen",
+                groningen_lat,
+                groningen_lng,
+                tile_x,
+                tile_y,
+                REGION_ZOOM_LEVEL as i64,
+            ],
+        )?;
+
+        println!("✅ Seeded default region: Groningen");
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
