@@ -44,6 +44,7 @@ fn main() {
             avatar::handle_avatar_movement, // Run avatar movement before camera so camera can follow
             systems::free_camera::camera_controls.after(avatar::handle_avatar_movement),
             avatar::spawn_avatar,
+            avatar::play_avatar_animations.after(avatar::handle_avatar_movement), // Play animations after movement updates
             systems::debug::debug_region_entities.after(rendering::spawn_regions),
         ))
         .run();

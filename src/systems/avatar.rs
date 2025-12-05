@@ -1,7 +1,13 @@
 use bevy::prelude::*;
-use bevy::render::mesh::shape::UVSphere;
 use crate::components::Avatar;
 use crate::resources::AvatarState;
+
+#[derive(Component)]
+pub struct AvatarAnimationState {
+    pub walk_animation: Handle<AnimationClip>,
+    pub idle_animation: Handle<AnimationClip>,
+    pub current_animation: Option<Handle<AnimationClip>>,
+}
 
 const WALK_SPEED: f32 = 8.0;
 const FLY_SPEED: f32 = 40.0;
@@ -15,50 +21,79 @@ pub struct AvatarMesh;
 
 pub fn spawn_avatar(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
     avatar_query: Query<Entity, (With<Avatar>, Without<AvatarMesh>)>,
 ) {
     for entity in avatar_query.iter() {
-        // Create simple avatar (using box for body, sphere for head)
-        let body_mesh = meshes.add(Mesh::from(bevy::render::mesh::shape::Box::new(0.6, 1.2, 0.6)));
-        let head_mesh = meshes.add(Mesh::from(UVSphere::default()));
+        // Load the fox GLTF model - using the same path structure as foxtrot
+        // The model path is "models/fox/Fox.gltf#Scene0"
+        // Note: Bevy 0.12 doesn't have load_with_settings, so we use simple load
+        let fox_handle: Handle<Scene> = asset_server.load("models/fox/Fox.gltf#Scene0");
 
-        let body_material = materials.add(StandardMaterial {
-            base_color: Color::rgb(0.29, 0.56, 0.89), // #4a90e2
-            ..default()
-        });
+        // Load animations from the GLTF file
+        // Based on foxtrot: Animation0 = run, Animation1 = idle, Animation2 = walk
+        let walk_animation: Handle<AnimationClip> = asset_server.load("models/fox/Fox.gltf#Animation2");
+        let idle_animation: Handle<AnimationClip> = asset_server.load("models/fox/Fox.gltf#Animation1");
 
-        let head_material = materials.add(StandardMaterial {
-            base_color: Color::rgb(0.99, 0.74, 0.71), // #fdbcb4
-            ..default()
-        });
-
-        // Add mesh components (transform should already exist from spawn_avatar_entity)
-        // Make sure avatar is visible
         commands.entity(entity).insert((
             Visibility::Visible,
             AvatarMesh,
+            AvatarAnimationState {
+                walk_animation: walk_animation.clone(),
+                idle_animation: idle_animation.clone(),
+                current_animation: None,
+            },
         ));
 
-        // Spawn children using with_children - this ensures proper parent-child relationship
+        // Spawn the fox scene as a child - it will automatically follow the avatar's transform
+        // Rotate 180 degrees around Y axis to face forward (fox model faces backward by default)
         commands.entity(entity).with_children(|parent| {
-            // Spawn body as child
-            parent.spawn(MaterialMeshBundle {
-                mesh: body_mesh,
-                material: body_material,
-                transform: Transform::from_xyz(0.0, 1.0, 0.0), // Local transform relative to parent
-                ..default()
-            });
-
-            // Spawn head (sphere) as child
-            parent.spawn(MaterialMeshBundle {
-                mesh: head_mesh,
-                material: head_material,
-                transform: Transform::from_xyz(0.0, 2.0, 0.0), // Local transform relative to parent
+            parent.spawn(SceneBundle {
+                scene: fox_handle.clone(),
+                transform: Transform::from_xyz(0.0, 0.0, 0.0)
+                    .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)), // Rotate to face forward
                 ..default()
             });
         });
+    }
+}
+
+pub fn play_avatar_animations(
+    mut animation_query: Query<&mut AnimationPlayer>,
+    mut avatar_query: Query<(Entity, &mut AvatarAnimationState), With<Avatar>>,
+    avatar_state: Res<AvatarState>,
+    children_query: Query<&Children>,
+) {
+    for (avatar_entity, mut anim_state) in avatar_query.iter_mut() {
+        // Find AnimationPlayer in the scene hierarchy by traversing children recursively
+        if let Ok(children) = children_query.get(avatar_entity) {
+            // Recursively search for AnimationPlayer in children
+            let mut entities_to_check = children.iter().copied().collect::<Vec<_>>();
+
+            while let Some(entity) = entities_to_check.pop() {
+                // Check if this entity has an AnimationPlayer
+                if let Ok(mut player) = animation_query.get_mut(entity) {
+                    // Determine which animation to play
+                    let target_animation = if avatar_state.is_walking && !avatar_state.is_flying {
+                        &anim_state.walk_animation
+                    } else {
+                        &anim_state.idle_animation
+                    };
+
+                    // Only change animation if it's different from current
+                    if anim_state.current_animation.as_ref() != Some(target_animation) {
+                        player.start(target_animation.clone()).repeat();
+                        anim_state.current_animation = Some(target_animation.clone());
+                    }
+                    break; // Found and updated, no need to check other entities
+                }
+
+                // Add children of this entity to the search queue
+                if let Ok(child_children) = children_query.get(entity) {
+                    entities_to_check.extend(child_children.iter());
+                }
+            }
+        }
     }
 }
 
