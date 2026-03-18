@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+use bevy_atmosphere::prelude::*;
+
 use crate::resources::{AvatarState, CameraState, CameraMode};
 use crate::systems::rendering::RegionMesh;
 
@@ -20,6 +22,7 @@ pub fn setup_camera(mut commands: Commands, mut camera_state: ResMut<CameraState
     commands.spawn((
         Camera3d::default(),
         Transform::from_xyz(0.0, 10.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
+        AtmosphereCamera::default(),
         FreeCamera,
     ));
 }

@@ -1,4 +1,6 @@
+use bevy::pbr::light_consts::lux::AMBIENT_DAYLIGHT;
 use bevy::prelude::*;
+use bevy_atmosphere::prelude::*;
 
 mod components;
 mod resources;
@@ -12,14 +14,18 @@ use systems::*;
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
+        .add_plugins((
+            DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Vibers RS".into(),
                 resolution: (1280.0, 720.0).into(),
                 ..default()
             }),
             ..default()
-        }))
+        }),
+            AtmospherePlugin,
+        ))
+        .insert_resource(AtmosphereModel::default())
         .init_resource::<GameState>()
         .init_resource::<AvatarState>()
         .init_resource::<CameraState>()
@@ -29,7 +35,7 @@ fn main() {
             database::init_database,
             systems::free_camera::setup_camera,
             spawn_avatar_entity,
-            setup_lighting,
+            setup_sky,
         ))
         .add_systems(Update, (
             database::load_regions.run_if(|db: Option<Res<Database>>| db.is_some()),
@@ -66,25 +72,27 @@ fn spawn_avatar_entity(mut commands: Commands) {
     ));
 }
 
-fn setup_lighting(mut commands: Commands) {
-    // Directional light (sun)
+fn setup_sky(
+    mut commands: Commands,
+    mut atmosphere: AtmosphereMut<Nishita>,
+) {
+    // Sun position: afternoon sun from upper-right (matches sky gradient)
+    let sun_position = Vec3::new(0.3, 0.8, 0.5).normalize();
+    atmosphere.sun_position = sun_position;
+
+    // Directional light aligned with sun (Bevy light illuminates along -Z in local space)
     commands.spawn((
         DirectionalLight {
-            illuminance: 10000.0,
+            illuminance: AMBIENT_DAYLIGHT,
             ..default()
         },
-        Transform::from_rotation(Quat::from_euler(
-            EulerRot::XYZ,
-            -0.5,
-            -0.5,
-            0.0,
-        )),
+        Transform::from_translation(Vec3::ZERO).looking_to(-sun_position, Vec3::Y),
     ));
 
-    // Ambient light
+    // Ambient light for fill (sky provides additional ambient)
     commands.insert_resource(AmbientLight {
         color: Color::WHITE,
-        brightness: 0.15,
+        brightness: 0.1,
         affects_lightmapped_meshes: true,
     });
 }
