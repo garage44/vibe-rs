@@ -1,5 +1,6 @@
 use bevy::prelude::*;
-use bevy::render::texture::{ImageSampler, ImageSamplerDescriptor, ImageFilterMode};
+use bevy::render::render_asset::RenderAssetUsages;
+use bevy_image::{Image, ImageSampler};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::io::Read;
@@ -117,15 +118,11 @@ pub fn load_region_tiles(
                             bevy::render::render_resource::TextureDimension::D2,
                             rgba.into_raw(),
                             bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+                            RenderAssetUsages::default(),
                         );
 
                         // Configure sampler for OSM tiles
-                        bevy_image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
-                            min_filter: ImageFilterMode::Linear,
-                            mag_filter: ImageFilterMode::Linear,
-                            mipmap_filter: ImageFilterMode::Linear,
-                            ..default()
-                        });
+                        bevy_image.sampler = ImageSampler::linear();
 
                         let handle = images.add(bevy_image);
 

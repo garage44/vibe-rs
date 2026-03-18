@@ -35,11 +35,18 @@ fn main() {
             database::load_regions.run_if(|db: Option<Res<Database>>| db.is_some()),
             database::load_prims.run_if(|db: Option<Res<Database>>| db.is_some()),
         ))
+        .add_systems(
+            Update,
+            (
+                rendering::spawn_regions.after(database::load_regions),
+                rendering::spawn_prims.after(database::load_prims),
+            ),
+        )
         .add_systems(Update, (
-            rendering::spawn_regions.after(database::load_regions),
-            rendering::spawn_prims.after(database::load_prims),
             systems::tile_loader::load_region_tiles,
             rendering::update_region_materials,
+        ))
+        .add_systems(Update, (
             systems::free_camera::camera_mode_toggle,
             avatar::handle_avatar_movement, // Run avatar movement before camera so camera can follow
             systems::free_camera::camera_controls.after(avatar::handle_avatar_movement),
@@ -59,23 +66,23 @@ fn spawn_avatar_entity(mut commands: Commands) {
 
 fn setup_lighting(mut commands: Commands) {
     // Directional light (sun)
-    commands.spawn(DirectionalLightBundle {
-        directional_light: DirectionalLight {
+    commands.spawn((
+        DirectionalLight {
             illuminance: 10000.0,
             ..default()
         },
-        transform: Transform::from_rotation(Quat::from_euler(
+        Transform::from_rotation(Quat::from_euler(
             EulerRot::XYZ,
             -0.5,
             -0.5,
             0.0,
         )),
-        ..default()
-    });
+    ));
 
     // Ambient light
     commands.insert_resource(AmbientLight {
         color: Color::WHITE,
         brightness: 0.15,
+        affects_lightmapped_meshes: true,
     });
 }

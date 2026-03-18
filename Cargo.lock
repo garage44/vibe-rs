@@ -4921,6 +4921,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_atmosphere",
+ "bevy_image",
  "image 0.24.9",
  "rusqlite",
  "serde",

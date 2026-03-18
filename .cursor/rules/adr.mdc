@@ -1,0 +1,43 @@
+---
+description: "Architecture Decision Records (ADR) consultation workflow for vibe-rs"
+globs:
+  - "**/*"
+alwaysApply: false
+---
+
+# Vibe-RS ADR Consultation
+
+Before making significant architectural or technology decisions, consult existing ADRs to ensure consistency.
+
+## ADR Locations
+
+- **Index**: `docs/architecture/adr/index.md`
+- **Template**: `docs/architecture/adr/template.md`
+- **Overview**: `docs/architecture/adr/README.md`
+
+## Workflow
+
+1. **Consult ADRs** before proposing architectural changes
+2. **Cite ADRs** in plans to show consistency
+3. **Flag deviations** explicitly with justification
+4. **Create new ADRs** for significant decisions using the template
+
+## When to Create an ADR
+
+**Create ADR for:**
+- Technology choices (engine, database, libraries)
+- Architectural patterns (ECS layout, system ordering)
+- Storage and data models
+- Integration approaches (tiles, networking)
+
+**Skip ADR for:**
+- Implementation details within existing patterns
+- Bug fixes without architectural changes
+- Routine dependency updates
+
+## Technology Stack (Established by ADRs)
+
+- **Engine**: Bevy 0.16 (ADR-001)
+- **Storage**: SQLite via rusqlite (ADR-002)
+- **Architecture**: ECS with Bevy (ADR-003)
+- **Tiles**: OSM tiles via ureq (ADR-004)

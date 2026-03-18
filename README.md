@@ -87,6 +87,10 @@ To add a new feature:
 2. Create a system function in `src/systems/`
 3. Register the system in `src/main.rs` using `.add_systems()`
 
+### Architecture
+
+Architectural decisions are documented in [docs/architecture/adr/](docs/architecture/adr/). See the [ADR index](docs/architecture/adr/index.md) for technology choices (Bevy, SQLite, OSM tiles) and patterns (ECS layout, system ordering).
+
 ### Project Structure
 
 ```

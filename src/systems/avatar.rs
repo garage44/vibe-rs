@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::render::mesh::shape::UVSphere;
+use bevy::math::primitives::{Cuboid, Sphere};
 use crate::components::Avatar;
 use crate::resources::AvatarState;
 
@@ -21,16 +21,16 @@ pub fn spawn_avatar(
 ) {
     for entity in avatar_query.iter() {
         // Create simple avatar (using box for body, sphere for head)
-        let body_mesh = meshes.add(Mesh::from(bevy::render::mesh::shape::Box::new(0.6, 1.2, 0.6)));
-        let head_mesh = meshes.add(Mesh::from(UVSphere::default()));
+        let body_mesh = meshes.add(Cuboid::new(0.3, 0.6, 0.3));
+        let head_mesh = meshes.add(Sphere::default());
 
         let body_material = materials.add(StandardMaterial {
-            base_color: Color::rgb(0.29, 0.56, 0.89), // #4a90e2
+            base_color: Color::srgb(0.29, 0.56, 0.89), // #4a90e2
             ..default()
         });
 
         let head_material = materials.add(StandardMaterial {
-            base_color: Color::rgb(0.99, 0.74, 0.71), // #fdbcb4
+            base_color: Color::srgb(0.99, 0.74, 0.71), // #fdbcb4
             ..default()
         });
 
@@ -43,30 +43,24 @@ pub fn spawn_avatar(
 
         // Spawn body
         let body_entity = commands.spawn((
-            MaterialMeshBundle {
-                mesh: body_mesh,
-                material: body_material,
-                transform: Transform::from_xyz(0.0, 1.0, 0.0),
-                ..default()
-            },
+            Mesh3d(body_mesh),
+            MeshMaterial3d(body_material),
+            Transform::from_xyz(0.0, 1.0, 0.0),
         )).id();
         commands.entity(entity).add_child(body_entity);
 
         // Spawn head
         let head_entity = commands.spawn((
-            MaterialMeshBundle {
-                mesh: head_mesh,
-                material: head_material,
-                transform: Transform::from_xyz(0.0, 2.0, 0.0),
-                ..default()
-            },
+            Mesh3d(head_mesh),
+            MeshMaterial3d(head_material),
+            Transform::from_xyz(0.0, 2.0, 0.0),
         )).id();
         commands.entity(entity).add_child(head_entity);
     }
 }
 
 pub fn handle_avatar_movement(
-    keyboard_input: Res<Input<KeyCode>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     mut avatar_query: Query<&mut Transform, With<Avatar>>,
     mut avatar_state: ResMut<AvatarState>,
@@ -80,7 +74,9 @@ pub fn handle_avatar_movement(
         return;
     }
 
-    let mut transform = avatar_query.single_mut();
+    let Ok(mut transform) = avatar_query.single_mut() else {
+        return;
+    };
     let delta_time = time.delta().as_secs_f32();
 
     // Always sync avatar state position with transform
@@ -88,16 +84,16 @@ pub fn handle_avatar_movement(
     avatar_state.position = transform.translation;
 
     // Toggle fly mode with F key
-    if keyboard_input.just_pressed(KeyCode::F) {
+    if keyboard_input.just_pressed(KeyCode::KeyF) {
         avatar_state.is_flying = !avatar_state.is_flying;
         println!("Fly mode: {}", if avatar_state.is_flying { "ON" } else { "OFF" });
     }
 
     // Movement input
-    let move_forward = keyboard_input.pressed(KeyCode::W) || keyboard_input.pressed(KeyCode::Up);
-    let move_backward = keyboard_input.pressed(KeyCode::S) || keyboard_input.pressed(KeyCode::Down);
-    let move_left = keyboard_input.pressed(KeyCode::A) || keyboard_input.pressed(KeyCode::Left);
-    let move_right = keyboard_input.pressed(KeyCode::D) || keyboard_input.pressed(KeyCode::Right);
+    let move_forward = keyboard_input.pressed(KeyCode::KeyW) || keyboard_input.pressed(KeyCode::ArrowUp);
+    let move_backward = keyboard_input.pressed(KeyCode::KeyS) || keyboard_input.pressed(KeyCode::ArrowDown);
+    let move_left = keyboard_input.pressed(KeyCode::KeyA) || keyboard_input.pressed(KeyCode::ArrowLeft);
+    let move_right = keyboard_input.pressed(KeyCode::KeyD) || keyboard_input.pressed(KeyCode::ArrowRight);
     let fly_up = keyboard_input.pressed(KeyCode::Space);
     let fly_down = keyboard_input.pressed(KeyCode::ShiftLeft) || keyboard_input.pressed(KeyCode::ShiftRight);
 

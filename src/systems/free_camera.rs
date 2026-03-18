@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use crate::components::Avatar;
 use crate::resources::{AvatarState, CameraState, CameraMode};
 use crate::systems::rendering::RegionMesh;
 
@@ -19,16 +18,14 @@ pub fn setup_camera(mut commands: Commands, mut camera_state: ResMut<CameraState
     camera_state.pitch = std::f32::consts::PI / 6.0;
 
     commands.spawn((
-        Camera3dBundle {
-            transform: Transform::from_xyz(0.0, 10.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
-            ..default()
-        },
+        Camera3d::default(),
+        Transform::from_xyz(0.0, 10.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
         FreeCamera,
     ));
 }
 
 pub fn camera_mode_toggle(
-    keyboard_input: Res<Input<KeyCode>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
     mut camera_state: ResMut<CameraState>,
     camera_query: Query<&Transform, With<FreeCamera>>,
 ) {
@@ -36,7 +33,7 @@ pub fn camera_mode_toggle(
         camera_state.mode = match camera_state.mode {
             CameraMode::Avatar => {
                 // Initialize free camera rotation from current camera orientation
-                if let Ok(camera_transform) = camera_query.get_single() {
+                if let Ok(camera_transform) = camera_query.single() {
                     let euler = camera_transform.rotation.to_euler(EulerRot::YXZ);
                     camera_state.free_camera_rotation = Vec2::new(euler.1, euler.0);
                 }
@@ -49,8 +46,8 @@ pub fn camera_mode_toggle(
 }
 
 pub fn camera_controls(
-    keyboard_input: Res<Input<KeyCode>>,
-    mouse_input: Res<Input<MouseButton>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mouse_input: Res<ButtonInput<MouseButton>>,
     mut cursor_moved_events: EventReader<CursorMoved>,
     mut mouse_wheel_events: EventReader<bevy::input::mouse::MouseWheel>,
     mut camera_query: Query<&mut Transform, With<FreeCamera>>,
@@ -63,7 +60,9 @@ pub fn camera_controls(
         return;
     }
 
-    let mut camera_transform = camera_query.single_mut();
+    let Ok(mut camera_transform) = camera_query.single_mut() else {
+        return;
+    };
     let delta_time = time.delta().as_secs_f32();
 
     match camera_state.mode {
@@ -169,16 +168,16 @@ pub fn camera_controls(
 
             let mut move_direction = Vec3::ZERO;
 
-            if keyboard_input.pressed(KeyCode::W) {
+            if keyboard_input.pressed(KeyCode::KeyW) {
                 move_direction += forward_horizontal;
             }
-            if keyboard_input.pressed(KeyCode::S) {
+            if keyboard_input.pressed(KeyCode::KeyS) {
                 move_direction -= forward_horizontal;
             }
-            if keyboard_input.pressed(KeyCode::A) {
+            if keyboard_input.pressed(KeyCode::KeyA) {
                 move_direction -= right_horizontal;
             }
-            if keyboard_input.pressed(KeyCode::D) {
+            if keyboard_input.pressed(KeyCode::KeyD) {
                 move_direction += right_horizontal;
             }
 
@@ -187,15 +186,15 @@ pub fn camera_controls(
                 move_direction += Vec3::Y;
             }
             // Q or Shift for moving down (but Shift also speeds up, so only use Shift if not moving horizontally)
-            if keyboard_input.pressed(KeyCode::Q) {
+            if keyboard_input.pressed(KeyCode::KeyQ) {
                 move_direction -= Vec3::Y;
             }
             // Shift alone (without WASD) moves down
             if (keyboard_input.pressed(KeyCode::ShiftLeft) || keyboard_input.pressed(KeyCode::ShiftRight))
-                && !keyboard_input.pressed(KeyCode::W)
-                && !keyboard_input.pressed(KeyCode::A)
-                && !keyboard_input.pressed(KeyCode::S)
-                && !keyboard_input.pressed(KeyCode::D) {
+                && !keyboard_input.pressed(KeyCode::KeyW)
+                && !keyboard_input.pressed(KeyCode::KeyA)
+                && !keyboard_input.pressed(KeyCode::KeyS)
+                && !keyboard_input.pressed(KeyCode::KeyD) {
                 move_direction -= Vec3::Y;
             }
 

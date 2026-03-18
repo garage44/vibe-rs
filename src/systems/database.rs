@@ -148,7 +148,7 @@ pub fn load_prims(
                         region_id: prim.region_id,
                         name: prim.name.clone(),
                         shape: PrimShape::from_str(&prim.shape),
-                        color: Color::rgb(prim.color_r, prim.color_g, prim.color_b),
+                        color: Color::srgb(prim.color_r, prim.color_g, prim.color_b),
                     },
                     Transform::from_xyz(prim.position_x, prim.position_y, prim.position_z)
                         .with_rotation(Quat::from_euler(

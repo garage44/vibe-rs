@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::render::mesh::shape::{UVSphere, Cylinder, Torus};
+use bevy::math::primitives::{Cuboid, Cylinder, Sphere, Torus};
 use crate::components::{Region, Prim, PrimShape};
 use crate::systems::tile_loader::{RegionTile, TileKey};
 use crate::utils::tile_utils::REGION_SIZE_METERS;
@@ -62,15 +62,15 @@ pub fn spawn_regions(
         // Create a simple flat box as the region (easier than plane rotation)
         // Box with very small height to act as a flat plane
         let region_size = REGION_SIZE_METERS as f32;
-        let region_mesh = meshes.add(Mesh::from(bevy::render::mesh::shape::Box::new(
-            region_size,
-            0.1, // Very thin - acts like a plane
-            region_size,
-        )));
+        let region_mesh = meshes.add(Cuboid::new(
+            region_size / 2.0,
+            0.05, // Very thin - acts like a plane
+            region_size / 2.0,
+        ));
 
         // Create simple untextured material
         let default_material = materials.add(StandardMaterial {
-            base_color: Color::rgb(0.7, 0.7, 0.7), // Light gray
+            base_color: Color::srgb(0.7, 0.7, 0.7), // Light gray
             ..default()
         });
 
@@ -81,13 +81,10 @@ pub fn spawn_regions(
         let transform = Transform::from_translation(position);
 
         commands.entity(entity).insert((
-            MaterialMeshBundle {
-                mesh: region_mesh,
-                material: default_material,
-                transform,
-                visibility: Visibility::Visible,
-                ..default()
-            },
+            Mesh3d(region_mesh),
+            MeshMaterial3d(default_material),
+            transform,
+            Visibility::Visible,
             RegionMesh,
             RegionTile {
                 tile_key,
@@ -104,17 +101,17 @@ pub fn spawn_regions(
 /// Update region materials when tile textures are loaded
 pub fn update_region_materials(
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut region_query: Query<(&mut Handle<StandardMaterial>, &crate::systems::tile_loader::RegionTileTexture), (With<RegionMesh>, Changed<crate::systems::tile_loader::RegionTileTexture>)>,
+    mut region_query: Query<(&mut MeshMaterial3d<StandardMaterial>, &crate::systems::tile_loader::RegionTileTexture), (With<RegionMesh>, Changed<crate::systems::tile_loader::RegionTileTexture>)>,
     images: Res<Assets<Image>>,
 ) {
-    for (mut material_handle, tile_texture) in region_query.iter_mut() {
+    for (mut material, tile_texture) in region_query.iter_mut() {
         if images.get(&tile_texture.handle).is_some() {
             // Create new material with tile texture
             let new_material = materials.add(StandardMaterial {
                 base_color_texture: Some(tile_texture.handle.clone()),
                 ..default()
             });
-            *material_handle = new_material;
+            *material = MeshMaterial3d(new_material);
         }
     }
 }
@@ -127,13 +124,11 @@ pub fn spawn_prims(
 ) {
     for (entity, prim, transform) in prim_query.iter() {
         let mesh_handle = match prim.shape {
-            PrimShape::Box => meshes.add(Mesh::from(bevy::render::mesh::shape::Box::new(transform.scale.x, transform.scale.y, transform.scale.z))),
-            PrimShape::Sphere => {
-                meshes.add(Mesh::from(UVSphere::default()))
-            }
-            PrimShape::Cylinder => meshes.add(Mesh::from(Cylinder::default())),
-            PrimShape::Cone => meshes.add(Mesh::from(Cylinder::default())), // Use cylinder as cone substitute
-            PrimShape::Torus => meshes.add(Mesh::from(Torus::default())),
+            PrimShape::Box => meshes.add(Cuboid::new(transform.scale.x / 2.0, transform.scale.y / 2.0, transform.scale.z / 2.0)),
+            PrimShape::Sphere => meshes.add(Sphere::default()),
+            PrimShape::Cylinder => meshes.add(Cylinder::default()),
+            PrimShape::Cone => meshes.add(Cylinder::default()), // Use cylinder as cone substitute
+            PrimShape::Torus => meshes.add(Torus::default()),
         };
 
         let material_handle = materials.add(StandardMaterial {
@@ -142,12 +137,9 @@ pub fn spawn_prims(
         });
 
         commands.entity(entity).insert((
-            MaterialMeshBundle {
-                mesh: mesh_handle,
-                material: material_handle,
-                transform: *transform,
-                ..default()
-            },
+            Mesh3d(mesh_handle),
+            MeshMaterial3d(material_handle),
+            *transform,
             PrimMesh,
         ));
     }
