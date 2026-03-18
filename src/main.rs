@@ -44,19 +44,16 @@ fn main() {
             avatar::handle_avatar_movement, // Run avatar movement before camera so camera can follow
             systems::free_camera::camera_controls.after(avatar::handle_avatar_movement),
             avatar::spawn_avatar,
-            avatar::play_avatar_animations.after(avatar::handle_avatar_movement), // Play animations after movement updates
             systems::debug::debug_region_entities.after(rendering::spawn_regions),
         ))
         .run();
 }
 
 fn spawn_avatar_entity(mut commands: Commands) {
-    // Spawn avatar entity with initial transform and GlobalTransform
-    // GlobalTransform is required for children to follow parent
+    // Spawn avatar entity with initial transform
     commands.spawn((
         Avatar,
         Transform::from_translation(Vec3::new(0.0, 2.2, 0.0)),
-        GlobalTransform::default(),
     ));
 }
 

@@ -69,7 +69,6 @@ pub fn camera_controls(
     match camera_state.mode {
         CameraMode::Avatar => {
             // Third-person camera following avatar
-            // Use avatar_state.position which is synced from transform by avatar movement system
             let avatar_pos = avatar_state.position;
 
             // Handle mouse wheel zoom
