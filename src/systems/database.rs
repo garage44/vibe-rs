@@ -7,6 +7,14 @@ use crate::resources::{Database, GameState};
 pub fn init_database(mut commands: Commands) {
     let db_path = "data/regions.db";
 
+    // Ensure data directory exists (SQLite does not create parent dirs)
+    if let Some(parent) = std::path::Path::new(db_path).parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            eprintln!("❌ Failed to create data directory: {}", e);
+            return;
+        }
+    }
+
     match crate::db::schema::init_database(db_path) {
         Ok(conn) => {
             println!("✅ Database initialized");
