@@ -1,61 +1,110 @@
+use bevy::animation::graph::{AnimationGraph, AnimationGraphHandle, AnimationNodeIndex};
+use bevy::gltf::GltfAssetLabel;
 use bevy::prelude::*;
-use bevy::math::primitives::{Cuboid, Sphere};
+use bevy::scene::SceneInstanceReady;
 use crate::components::Avatar;
 use crate::resources::AvatarState;
+
+// Official Bevy fox model (models/animated/Fox.glb)
+const FOX_GLB: &str = "models/animated/Fox.glb";
+// Bevy fox animations: 0=Survey (idle), 1=Walk, 2=Run
+const IDLE_ANIMATION_INDEX: usize = 0;
+const RUN_ANIMATION_INDEX: usize = 2;
 
 const WALK_SPEED: f32 = 8.0;
 const FLY_SPEED: f32 = 40.0;
 const ROTATION_SPEED: f32 = 2.0;
 const GRAVITY: f32 = -9.8;
-const AVATAR_HEIGHT: f32 = 0.6;
-const GROUND_HEIGHT: f32 = 0.0;
+const AVATAR_HEIGHT: f32 = 0.8; // Fox model height (scaled)
+const GROUND_HEIGHT: f32 = 0.05; // Region tile top surface (cuboid half-extent y)
 
 #[derive(Component)]
-pub struct AvatarMesh;
+pub struct AvatarFoxLoaded;
+
+/// Component storing animation data for the fox, used when scene is ready
+#[derive(Component)]
+pub(crate) struct FoxAnimationToPlay {
+    graph_handle: Handle<AnimationGraph>,
+    idle_index: AnimationNodeIndex,
+    run_index: AnimationNodeIndex,
+}
 
 pub fn spawn_avatar(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    avatar_query: Query<Entity, (With<Avatar>, Without<AvatarMesh>)>,
+    asset_server: Res<AssetServer>,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+    avatar_query: Query<Entity, (With<Avatar>, Without<AvatarFoxLoaded>)>,
 ) {
     for entity in avatar_query.iter() {
-        // Create simple avatar (using box for body, sphere for head)
-        let body_mesh = meshes.add(Cuboid::new(0.3, 0.6, 0.3));
-        let head_mesh = meshes.add(Sphere::default());
+        let (graph, indices) = AnimationGraph::from_clips([
+            asset_server.load(GltfAssetLabel::Animation(IDLE_ANIMATION_INDEX).from_asset(FOX_GLB)),
+            asset_server.load(GltfAssetLabel::Animation(RUN_ANIMATION_INDEX).from_asset(FOX_GLB)),
+        ]);
+        let graph_handle = graphs.add(graph);
 
-        let body_material = materials.add(StandardMaterial {
-            base_color: Color::srgb(0.29, 0.56, 0.89), // #4a90e2
-            ..default()
-        });
+        let mesh_scene = SceneRoot(
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset(FOX_GLB)),
+        );
 
-        let head_material = materials.add(StandardMaterial {
-            base_color: Color::srgb(0.99, 0.74, 0.71), // #fdbcb4
-            ..default()
-        });
-
-        // Add mesh components (transform should already exist from spawn_avatar_entity)
-        // Make sure avatar is visible
         commands.entity(entity).insert((
-            Visibility::Visible,
-            AvatarMesh,
-        ));
+            AvatarFoxLoaded,
+            FoxAnimationToPlay {
+                graph_handle,
+                idle_index: indices[0],
+                run_index: indices[1],
+            },
+            mesh_scene,
+        )).observe(play_fox_animation_when_ready);
+    }
+}
 
-        // Spawn body
-        let body_entity = commands.spawn((
-            Mesh3d(body_mesh),
-            MeshMaterial3d(body_material),
-            Transform::from_xyz(0.0, 1.0, 0.0),
-        )).id();
-        commands.entity(entity).add_child(body_entity);
+fn play_fox_animation_when_ready(
+    trigger: Trigger<SceneInstanceReady>,
+    mut commands: Commands,
+    children: Query<&Children>,
+    animations_to_play: Query<&FoxAnimationToPlay>,
+    mut players: Query<&mut AnimationPlayer>,
+) {
+    if let Ok(animation_to_play) = animations_to_play.get(trigger.target()) {
+        for child in children.iter_descendants(trigger.target()) {
+            if let Ok(mut player) = players.get_mut(child) {
+                // Start with idle; update_fox_animation will switch based on movement
+                player.play(animation_to_play.idle_index).repeat().set_speed(1.5);
+                commands
+                    .entity(child)
+                    .insert(AnimationGraphHandle(animation_to_play.graph_handle.clone()));
+            }
+        }
+    }
+}
 
-        // Spawn head
-        let head_entity = commands.spawn((
-            Mesh3d(head_mesh),
-            MeshMaterial3d(head_material),
-            Transform::from_xyz(0.0, 2.0, 0.0),
-        )).id();
-        commands.entity(entity).add_child(head_entity);
+/// Switch fox animation between idle and run based on movement
+pub fn update_fox_animation(
+    avatar_state: Res<AvatarState>,
+    children: Query<&Children>,
+    animations_to_play: Query<&FoxAnimationToPlay, With<Avatar>>,
+    mut players: Query<&mut AnimationPlayer>,
+    avatar_query: Query<Entity, With<Avatar>>,
+) {
+    for avatar_entity in avatar_query.iter() {
+        let Ok(animation_to_play) = animations_to_play.get(avatar_entity) else {
+            continue;
+        };
+        for child in children.iter_descendants(avatar_entity) {
+            if let Ok(mut player) = players.get_mut(child) {
+                if avatar_state.is_walking {
+                    player.stop(animation_to_play.idle_index);
+                    if !player.is_playing_animation(animation_to_play.run_index) {
+                        player.play(animation_to_play.run_index).repeat().set_speed(1.5);
+                    }
+                } else {
+                    player.stop(animation_to_play.run_index);
+                    if !player.is_playing_animation(animation_to_play.idle_index) {
+                        player.play(animation_to_play.idle_index).repeat().set_speed(1.5);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -68,6 +117,7 @@ pub fn handle_avatar_movement(
 ) {
     // Don't move avatar if in free camera mode (camera handles movement)
     if camera_state.mode == crate::resources::CameraMode::Free {
+        avatar_state.is_walking = false;
         return;
     }
     if avatar_query.is_empty() {
@@ -161,8 +211,8 @@ pub fn handle_avatar_movement(
         }
     }
 
-    // Update rotation
-    transform.rotation = Quat::from_rotation_y(avatar_state.rotation);
+    // Update rotation - add PI so fox head faces movement direction (model faces -Z)
+    transform.rotation = Quat::from_rotation_y(avatar_state.rotation + std::f32::consts::PI);
 
     // Update avatar state position to match transform (important for camera following)
     avatar_state.position = transform.translation;

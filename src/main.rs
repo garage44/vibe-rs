@@ -51,16 +51,18 @@ fn main() {
             avatar::handle_avatar_movement, // Run avatar movement before camera so camera can follow
             systems::free_camera::camera_controls.after(avatar::handle_avatar_movement),
             avatar::spawn_avatar,
+            avatar::update_fox_animation.after(avatar::handle_avatar_movement),
             systems::debug::debug_region_entities.after(rendering::spawn_regions),
         ))
         .run();
 }
 
 fn spawn_avatar_entity(mut commands: Commands) {
-    // Spawn avatar entity with initial transform
+    // Spawn avatar entity - Bevy fox ~40 units, scale to ~0.8 units (20% smaller)
     commands.spawn((
         Avatar,
-        Transform::from_translation(Vec3::new(0.0, 2.2, 0.0)),
+        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0))
+            .with_scale(Vec3::splat(0.02)),
     ));
 }
 
