@@ -2,14 +2,17 @@
 
 This directory contains Architecture Decision Records for vibe-rs, documenting architectural decisions and technology choices. ADRs help maintain consistency and provide context for future development.
 
+The **strategic foundation** (`docs/architecture/meta/`) defines **goals (`G-*`)** and **principles (`P-*`)**. New ADRs should set **Aligns with** in metadata (see `template.md`).
+
 ## Quick Start for AI Assistants
 
 **Before making architectural decisions:**
 
-1. Read this file for overview
-2. Search ADRs in `index.md` for relevant decisions
-3. Cite ADRs in plans to show consistency
-4. Create new ADRs for significant decisions using `template.md`
+1. Read [meta/vision.md](../meta/vision.md) and [meta/principles.md](../meta/principles.md)
+2. Skim [meta/capability-map.md](../meta/capability-map.md) for gaps and linked ADRs
+3. Search ADRs in `index.md` for relevant decisions
+4. Cite ADRs and meta goal/principle IDs in plans
+5. Create new ADRs for significant decisions using `template.md` (**Aligns with** `G-*` / `P-*` or `N/A` with reason)
 
 **After successful implementation:**
 
@@ -28,6 +31,7 @@ Each ADR contains:
 
 ## Location
 
+- **Meta (vision & principles)**: `docs/architecture/meta/`
 - **Index**: `docs/architecture/adr/index.md`
 - **Template**: `docs/architecture/adr/template.md`
 - **Individual ADRs**: `docs/architecture/adr/XXXX-topic.md`

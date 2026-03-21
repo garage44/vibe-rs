@@ -7,9 +7,16 @@ alwaysApply: false
 
 # Vibe-RS ADR Consultation
 
-Before making significant architectural or technology decisions, consult existing ADRs to ensure consistency.
+Before making significant architectural or technology decisions, consult **meta** (vision, principles) and existing **ADRs**.
 
-## ADR Locations
+## Meta (strategic foundation)
+
+- **Overview & discipline**: `docs/architecture/meta/README.md`
+- **Vision & goals (`G-*`)**: `docs/architecture/meta/vision.md`
+- **Principles (`P-*`)**: `docs/architecture/meta/principles.md`
+- **Capability map**: `docs/architecture/meta/capability-map.md`
+
+## ADR locations
 
 - **Index**: `docs/architecture/adr/index.md`
 - **Template**: `docs/architecture/adr/template.md`
@@ -17,10 +24,11 @@ Before making significant architectural or technology decisions, consult existin
 
 ## Workflow
 
-1. **Consult ADRs** before proposing architectural changes
-2. **Cite ADRs** in plans to show consistency
-3. **Flag deviations** explicitly with justification
-4. **Create new ADRs** for significant decisions using the template
+1. **Read meta** (`vision.md`, `principles.md`) before large architectural proposals
+2. **Consult ADRs** in `index.md` for relevant decisions
+3. **Cite** `G-*`, `P-*`, and ADRs in plans; set **Aligns with** on new ADRs (see template)
+4. **Flag deviations** from principles explicitly with justification or meta updates
+5. **Create new ADRs** for significant decisions using the template; update `index.md`
 
 ## When to Create an ADR
 

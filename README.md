@@ -2,6 +2,8 @@
 
 A Bevy-based 3D virtual world application.
 
+**AI assistants:** see [AGENTS.md](AGENTS.md) for the **meta → ADR → code** workflow and where goals (`G-*`) and principles (`P-*`) live.
+
 ## Features
 
 - **Region Storage**: SQLite database for storing regions with geographic coordinates
@@ -116,7 +118,7 @@ To add a new feature:
 
 ### Architecture
 
-Architectural decisions are documented in [docs/architecture/adr/](docs/architecture/adr/). See the [ADR index](docs/architecture/adr/index.md) for technology choices (Bevy, SQLite, OSM tiles) and patterns (ECS layout, system ordering).
+**Strategic foundation** (mission, goals, principles): [docs/architecture/meta/](docs/architecture/meta/). **Decision log** (ADRs): [docs/architecture/adr/](docs/architecture/adr/). See the [architecture README](docs/architecture/README.md) for read order; [ADR index](docs/architecture/adr/index.md) lists decisions (Bevy, SQLite, OSM tiles, networking, etc.).
 
 ### Project Structure
 

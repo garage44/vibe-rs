@@ -7,6 +7,7 @@
 - **Date**: YYYY-MM-DD
 - **Tags**: [tag1, tag2]
 - **Decision Type**: technology_choice | architecture_pattern | tool_adoption
+- **Aligns with**: [G-01, P-02] | N/A — [one-line reason, e.g. local refactor under ADR-NNN]
 - **Related**: [ADR-YYY, ADR-ZZZ]
 - **Supersedes**: [] | [ADR-XXX]
 - **Superseded By**: [] | [ADR-XXX]
