@@ -31,3 +31,7 @@ Each ADR contains:
 - **Index**: `docs/architecture/adr/index.md`
 - **Template**: `docs/architecture/adr/template.md`
 - **Individual ADRs**: `docs/architecture/adr/XXXX-topic.md`
+
+## Rust ecosystem (implementation hints)
+
+Server and protocol ADRs (**006–015**) include **recommended crates** where they help: e.g. **`tokio`** + **`tokio-util`** framing, **`postcard`**/`serde` for payloads, **`refinery`** + **`rusqlite`** for migrations, **`figment`** + **`clap`** for config, **`tracing`** for observability. Prefer **workspace dependency** versions in `[workspace.dependencies]` (ADR-015) instead of duplicating versions per crate.
