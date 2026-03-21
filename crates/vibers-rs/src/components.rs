@@ -26,9 +26,20 @@ pub struct Prim {
 pub struct Avatar;
 
 /// Another client’s avatar (sim id from `WorldSnapshot`); same fox mesh as [`Avatar`].
+/// `net_*` is authoritative each tick; [`crate::systems::avatar::smooth_remote_avatars`] blends `Transform`.
 #[derive(Component, Debug, Clone, Copy)]
 pub struct RemoteAvatar {
     pub sim_id: u64,
+    pub net_position: Vec3,
+    pub net_yaw: f32,
+}
+
+/// Horizontal speed (m/s) from visual motion, used for remote run vs idle animation.
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub struct RemoteAvatarMotionHint {
+    pub last_translation: Vec3,
+    pub horizontal_speed: f32,
+    pub initialized: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

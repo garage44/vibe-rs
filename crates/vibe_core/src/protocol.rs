@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::error::ProtocolError;
 
 /// Bump when the app-frame layout or postcard schema changes incompatibly.
-pub const PROTOCOL_VERSION: u16 = 3;
+pub const PROTOCOL_VERSION: u16 = 4;
 
 const APP_HEADER_LEN: usize = 8;
 
@@ -97,6 +97,8 @@ pub enum NetMessage {
         request_id: u32,
         move_x: f32,
         move_z: f32,
+        /// World yaw replicated to others (fox / travel facing). Server applies this when moving instead of `atan2(velocity)`.
+        display_yaw: f32,
         fly_up: bool,
         fly_down: bool,
     },

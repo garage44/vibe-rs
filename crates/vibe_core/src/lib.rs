@@ -3,6 +3,7 @@
 pub mod error;
 pub mod protocol;
 pub mod world;
+pub mod yaw;
 
 pub use error::ProtocolError;
 pub use protocol::{
@@ -14,3 +15,4 @@ pub use world::{
     find_optimal_zoom, lat_lng_to_tile, tile_to_lat_lng, tile_to_meters, TileKey,
     REGION_SIZE_METERS, REGION_ZOOM_LEVEL,
 };
+pub use yaw::{snap_yaw_continuation, wrap_angle_pi};

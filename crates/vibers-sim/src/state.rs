@@ -1,6 +1,6 @@
 use glam::Vec3;
 use std::collections::HashMap;
-use vibe_core::{AvatarStateDto, NetMessage, PrimDto, RegionDto};
+use vibe_core::{snap_yaw_continuation, AvatarStateDto, NetMessage, PrimDto, RegionDto};
 
 struct AvatarSim {
     position: Vec3,
@@ -68,7 +68,8 @@ impl SimWorld {
             id,
             AvatarSim {
                 position: start + Vec3::new(0.0, 1.0, 0.0),
-                yaw: 0.0,
+                // Match client tank convention: yaw π ↔ tank 0 ↔ travel −Z when pressing W.
+                yaw: std::f32::consts::PI,
                 velocity: Vec3::ZERO,
                 fly_vertical: 0.0,
             },
@@ -76,11 +77,23 @@ impl SimWorld {
         id
     }
 
+    pub fn remove_avatar(&mut self, id: u64) {
+        self.avatars.remove(&id);
+    }
+
     pub fn set_observer(&mut self, p: Vec3) {
         self.observer = p;
     }
 
-    pub fn apply_intent(&mut self, avatar_id: u64, move_x: f32, move_z: f32, fly_up: bool, fly_down: bool) {
+    pub fn apply_intent(
+        &mut self,
+        avatar_id: u64,
+        move_x: f32,
+        move_z: f32,
+        display_yaw: f32,
+        fly_up: bool,
+        fly_down: bool,
+    ) {
         let Some(av) = self.avatars.get_mut(&avatar_id) else {
             return;
         };
@@ -93,6 +106,8 @@ impl SimWorld {
         }
         av.velocity.x = v.x;
         av.velocity.z = v.z;
+        // Always apply facing so remotes see orbit-camera rotation while idle (not only when moving).
+        av.yaw = snap_yaw_continuation(av.yaw, display_yaw);
         let fly_speed = 5.0_f32;
         av.fly_vertical = if fly_up {
             fly_speed
@@ -111,6 +126,8 @@ impl SimWorld {
             if av.position.y < 0.0 {
                 av.position.y = 0.0;
             }
+            // Horizontal yaw comes from [`SimWorld::apply_intent`] (`display_yaw`); do not derive from
+            // `atan2(velocity)` (branch cuts + integration drift caused client flip-flops).
         }
     }
 

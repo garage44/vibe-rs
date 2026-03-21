@@ -21,7 +21,6 @@ pub async fn handle_connection(
     world: Arc<RwLock<SimWorld>>,
     config: Arc<SimConfig>,
     mut snap_rx: broadcast::Receiver<Vec<u8>>,
-    avatar_id: u64,
 ) -> anyhow::Result<()> {
     let mut framed = Framed::new(
         stream,
@@ -37,32 +36,39 @@ pub async fn handle_connection(
         .transpose()?
         .ok_or_else(|| anyhow::anyhow!("closed before hello"))?;
     let msg = decode_app_frame(&first)?;
-    match msg {
-        NetMessage::ClientHello {
-            protocol_version,
-            client_token,
-        } => {
-            if protocol_version != PROTOCOL_VERSION {
-                let err = encode_app_frame(&NetMessage::ServerError {
-                    request_id: 0,
-                    code: 1,
-                    message: format!("version {protocol_version} not supported"),
-                })?;
-                framed.send(Bytes::from(err)).await?;
-                return Err(ProtocolError::UnsupportedVersion(protocol_version).into());
-            }
-            tracing::info!(token = %client_token, "client hello");
-            let ack = encode_app_frame(&NetMessage::ServerHelloAck {
-                session_id: uuid::Uuid::new_v4(),
-                tick_hz: config.tick_hz,
-                your_avatar_id: avatar_id,
-                osm_tile_url_template: config.osm_tile_url_template.clone(),
-            })?;
-            framed.send(Bytes::from(ack)).await?;
-        }
-        other => {
-            return Err(ProtocolError::ExpectedHello(format!("{other:?}").into()).into());
-        }
+    let NetMessage::ClientHello {
+        protocol_version,
+        client_token,
+    } = msg
+    else {
+        return Err(
+            ProtocolError::ExpectedHello(format!("{msg:?}").into()).into(),
+        );
+    };
+    if protocol_version != PROTOCOL_VERSION {
+        let err = encode_app_frame(&NetMessage::ServerError {
+            request_id: 0,
+            code: 1,
+            message: format!("version {protocol_version} not supported"),
+        })?;
+        framed.send(Bytes::from(err)).await?;
+        return Err(ProtocolError::UnsupportedVersion(protocol_version).into());
+    }
+    let avatar_id = {
+        let mut w = world.write().await;
+        w.spawn_avatar()
+    };
+    tracing::info!(token = %client_token, avatar_id, "client hello");
+    let ack = encode_app_frame(&NetMessage::ServerHelloAck {
+        session_id: uuid::Uuid::new_v4(),
+        tick_hz: config.tick_hz,
+        your_avatar_id: avatar_id,
+        osm_tile_url_template: config.osm_tile_url_template.clone(),
+    })?;
+    if let Err(e) = framed.send(Bytes::from(ack)).await {
+        let mut w = world.write().await;
+        w.remove_avatar(avatar_id);
+        return Err(e.into());
     }
 
     let mut last_intent = Instant::now()
@@ -72,19 +78,24 @@ pub async fn handle_connection(
         .checked_sub(MIN_OBSERVER_INTERVAL)
         .unwrap_or_else(Instant::now);
 
+    let mut outcome: anyhow::Result<()> = Ok(());
     loop {
         tokio::select! {
             biased;
             incoming = framed.next() => {
                 match incoming {
                     None => break,
-                    Some(Err(e)) => return Err(e.into()),
+                    Some(Err(e)) => {
+                        outcome = Err(e.into());
+                        break;
+                    }
                     Some(Ok(bytes)) => {
                         let msg = decode_app_frame(&bytes)?;
                         match msg {
                             NetMessage::ClientIntent {
                                 move_x,
                                 move_z,
+                                display_yaw,
                                 fly_up,
                                 fly_down,
                                 ..
@@ -94,7 +105,7 @@ pub async fn handle_connection(
                                 }
                                 last_intent = Instant::now();
                                 let mut w = world.write().await;
-                                w.apply_intent(avatar_id, move_x, move_z, fly_up, fly_down);
+                                w.apply_intent(avatar_id, move_x, move_z, display_yaw, fly_up, fly_down);
                             }
                             NetMessage::ObserverUpdate { position } => {
                                 if last_observer.elapsed() < MIN_OBSERVER_INTERVAL {
@@ -120,7 +131,10 @@ pub async fn handle_connection(
             snap = snap_rx.recv() => {
                 match snap {
                     Ok(bytes) => {
-                        framed.send(Bytes::from(bytes)).await?;
+                        if let Err(e) = framed.send(Bytes::from(bytes)).await {
+                            outcome = Err(e.into());
+                            break;
+                        }
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(broadcast::error::RecvError::Closed) => break,
@@ -128,7 +142,14 @@ pub async fn handle_connection(
             }
         }
     }
-    Ok(())
+
+    {
+        let mut w = world.write().await;
+        w.remove_avatar(avatar_id);
+    }
+    tracing::info!(avatar_id, "avatar removed (disconnect)");
+
+    outcome
 }
 
 /// Periodically steps simulation and broadcasts postcard-encoded [`NetMessage::WorldSnapshot`] in app frames.

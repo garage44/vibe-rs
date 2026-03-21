@@ -6,12 +6,15 @@ A Bevy-based 3D virtual world application.
 
 - **Region Storage**: SQLite database for storing regions with geographic coordinates
 - **Prim Storage**: SQLite database for storing 3D primitives (boxes, spheres, cylinders, cones, toruses)
-- **Avatar Movement**: Walk and fly modes with WASD controls
+- **Avatar Movement**: Walk and fly modes; third-person **camera-relative** WASD (W/S forward–back in view, A/D strafe)
 - **Camera System**: Third-person camera following the avatar
 
 ## Controls
 
-- **WASD / Arrow Keys**: Move avatar
+- **W / ↑**: Move forward (into the screen, relative to the orbit camera)
+- **S / ↓**: Move backward (retreat; fox stays facing into the camera, no 180° flip)
+- **A,D / ←,→**: Strafe left/right on the ground (relative to the camera)
+- **Left-drag**: Orbit the camera around the avatar (movement stays camera-relative)
 - **Space**: Fly up (when in fly mode)
 - **Shift**: Fly down (when in fly mode)
 - **F**: Toggle fly/walk mode
@@ -74,7 +77,7 @@ cargo run -p vibers-rs --features fast-dev
 - The server sends **`osm_tile_url_template`** in the handshake so online clients use the same tile source (ADR-014).
 - **Before schema upgrades:** copy the SQLite file (ADR-013); migrations run automatically on sim startup.
 
-**Wire format (ADR-008–009):** TCP length-delimited frames, little-endian length; each frame body is an **app frame** (`protocol_version` + `message_kind` + `request_id` + postcard payload). `PROTOCOL_VERSION` is **3** in `vibe_core`.
+**Wire format (ADR-008–009):** TCP length-delimited frames, little-endian length; each frame body is an **app frame** (`protocol_version` + `message_kind` + `request_id` + postcard payload). `PROTOCOL_VERSION` is **4** in `vibe_core` (client intent includes `display_yaw`).
 
 This will:
 1. Compile the project in debug mode

@@ -22,7 +22,12 @@ pub struct AvatarState {
     pub position: Vec3,
     /// Visual follow target: smoothed toward `position` online so camera and mesh do not stutter at tick rate.
     pub display_position: Vec3,
+    /// Offline / local yaw for tank controls (radians).
     pub rotation: f32,
+    /// Online: replicated world yaw from snapshots (authoritative for reconciliation).
+    pub sim_facing_yaw: f32,
+    /// Online: `fox_facing_yaw − π` for legacy parity; movement uses camera azimuth, not this field.
+    pub online_tank_yaw: f32,
     pub is_flying: bool,
     pub is_walking: bool,
 }
@@ -34,6 +39,8 @@ impl Default for AvatarState {
             position: p,
             display_position: p,
             rotation: 0.0,
+            sim_facing_yaw: 0.0,
+            online_tank_yaw: 0.0,
             is_flying: false,
             is_walking: false,
         }

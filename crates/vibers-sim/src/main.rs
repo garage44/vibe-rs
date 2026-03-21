@@ -57,14 +57,8 @@ async fn main() -> anyhow::Result<()> {
         let world_c = world.clone();
         let cfg_c = config.clone();
         let rx = tx_snap.subscribe();
-        let avatar_id = {
-            let mut w = world.write().await;
-            w.spawn_avatar()
-        };
         tokio::spawn(async move {
-            if let Err(e) =
-                net::handle_connection(stream, world_c, cfg_c, rx, avatar_id).await
-            {
+            if let Err(e) = net::handle_connection(stream, world_c, cfg_c, rx).await {
                 tracing::warn!(%addr, "client ended: {e:#}");
             }
         });

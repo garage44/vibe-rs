@@ -1,10 +1,11 @@
 //! TCP client for `--connect` (ADR-008, ADR-009).
 
-use crate::components::{Avatar, Prim, PrimShape, Region, RemoteAvatar};
+use crate::components::{Avatar, Prim, PrimShape, Region, RemoteAvatar, RemoteAvatarMotionHint};
 use crate::resources::{
-    AvatarState, ConnectAddr, GameState, LocalAvatarSimId, NetworkMailbox, NetworkSyncState,
-    OnlineSession, OsmTileUrlTemplate,
+    AvatarState, CameraState, ConnectAddr, GameState, LocalAvatarSimId, NetworkMailbox,
+    NetworkSyncState, OnlineSession, OsmTileUrlTemplate,
 };
+use crate::systems::avatar::{fox_facing_yaw_from_camera, wish_dir_camera_relative};
 use bevy::prelude::*;
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
@@ -14,8 +15,8 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use vibe_core::{
-    decode_app_frame, encode_app_frame, AvatarStateDto, NetMessage, PrimDto, RegionDto,
-    PROTOCOL_VERSION,
+    decode_app_frame, encode_app_frame, snap_yaw_continuation, wrap_angle_pi, AvatarStateDto,
+    NetMessage, PrimDto, RegionDto, PROTOCOL_VERSION,
 };
 
 const MAX_FRAME: usize = 32 * 1024 * 1024;
@@ -138,10 +139,11 @@ pub fn apply_network_snapshot(
     mut game_state: ResMut<GameState>,
     mut avatar_state: ResMut<AvatarState>,
     mut local_sim_id: ResMut<LocalAvatarSimId>,
+    camera_state: Res<CameraState>,
     region_entities: Query<Entity, With<Region>>,
     prim_entities: Query<(Entity, &Prim)>,
     mut avatar_tf: Query<&mut Transform, (With<Avatar>, Without<RemoteAvatar>)>,
-    mut remote_avatars: Query<(Entity, &RemoteAvatar, &mut Transform), Without<Avatar>>,
+    mut remote_avatars: Query<(Entity, &mut RemoteAvatar), Without<Avatar>>,
 ) {
     let Some(mb) = mailbox else {
         return;
@@ -181,7 +183,7 @@ pub fn apply_network_snapshot(
                 for e in prim_es {
                     commands.entity(e).despawn();
                 }
-                let remote_es: Vec<Entity> = remote_avatars.iter().map(|(e, _, _)| e).collect();
+                let remote_es: Vec<Entity> = remote_avatars.iter().map(|(e, _)| e).collect();
                 for e in remote_es {
                     commands.entity(e).despawn();
                 }
@@ -203,6 +205,7 @@ pub fn apply_network_snapshot(
                     local_sim_id.0,
                     &mut avatar_state,
                     &mut avatar_tf,
+                    camera_state.azimuth,
                 );
                 sync_remote_avatar_entities(
                     &mut commands,
@@ -228,11 +231,18 @@ pub fn apply_network_snapshot(
     }
 }
 
-fn apply_local_avatar_pose(avatars: &[AvatarStateDto], local_id: Option<u64>, avatar_state: &mut AvatarState) {
+/// Updates authoritative position and replicated yaw. Does not touch [`AvatarState::online_tank_yaw`]
+/// (snapshot reconciliation there would cancel A/D before the server applies the next intent).
+fn apply_local_avatar_pose(
+    avatars: &[AvatarStateDto],
+    local_id: Option<u64>,
+    avatar_state: &mut AvatarState,
+) {
     let Some(a) = local_avatar_dto(avatars, local_id) else {
         return;
     };
     avatar_state.position = a.position;
+    avatar_state.sim_facing_yaw = snap_yaw_continuation(avatar_state.sim_facing_yaw, a.yaw);
 }
 
 fn apply_local_avatar_pose_full(
@@ -240,14 +250,20 @@ fn apply_local_avatar_pose_full(
     local_id: Option<u64>,
     avatar_state: &mut AvatarState,
     avatar_tf: &mut Query<&mut Transform, (With<Avatar>, Without<RemoteAvatar>)>,
+    camera_azimuth: f32,
 ) {
     let Some(a) = local_avatar_dto(avatars, local_id) else {
         return;
     };
+    let pi = std::f32::consts::PI;
     avatar_state.position = a.position;
     avatar_state.display_position = a.position;
+    avatar_state.sim_facing_yaw = snap_yaw_continuation(avatar_state.sim_facing_yaw, a.yaw);
+    let face = fox_facing_yaw_from_camera(camera_azimuth);
+    avatar_state.online_tank_yaw = wrap_angle_pi(face - pi);
     if let Ok(mut tf) = avatar_tf.single_mut() {
         tf.translation = a.position;
+        tf.rotation = Quat::from_rotation_y(face);
     }
 }
 
@@ -263,7 +279,7 @@ fn sync_remote_avatar_entities(
     commands: &mut Commands,
     avatars: &[AvatarStateDto],
     local_id: Option<u64>,
-    remote_query: &mut Query<(Entity, &RemoteAvatar, &mut Transform), Without<Avatar>>,
+    remote_query: &mut Query<(Entity, &mut RemoteAvatar), Without<Avatar>>,
 ) {
     let expected: HashSet<u64> = avatars
         .iter()
@@ -273,8 +289,8 @@ fn sync_remote_avatar_entities(
 
     let stale: Vec<Entity> = remote_query
         .iter()
-        .filter(|(_, r, _)| !expected.contains(&r.sim_id))
-        .map(|(e, _, _)| e)
+        .filter(|(_, r)| !expected.contains(&r.sim_id))
+        .map(|(e, _)| e)
         .collect();
     for e in stale {
         commands.entity(e).despawn();
@@ -285,19 +301,25 @@ fn sync_remote_avatar_entities(
             continue;
         }
         let mut found = false;
-        for (_, r, mut tf) in remote_query.iter_mut() {
+        for (_, mut r) in remote_query.iter_mut() {
             if r.sim_id == a.id {
-                tf.translation = a.position;
-                tf.rotation = Quat::from_rotation_y(a.yaw + std::f32::consts::PI);
+                r.net_position = a.position;
+                r.net_yaw = snap_yaw_continuation(r.net_yaw, a.yaw);
                 found = true;
                 break;
             }
         }
         if !found {
+            let y = snap_yaw_continuation(0.0, a.yaw);
             commands.spawn((
-                RemoteAvatar { sim_id: a.id },
+                RemoteAvatar {
+                    sim_id: a.id,
+                    net_position: a.position,
+                    net_yaw: y,
+                },
+                RemoteAvatarMotionHint::default(),
                 Transform::from_translation(a.position)
-                    .with_rotation(Quat::from_rotation_y(a.yaw + std::f32::consts::PI))
+                    .with_rotation(Quat::from_rotation_y(wrap_angle_pi(y)))
                     .with_scale(Vec3::splat(0.02)),
             ));
         }
@@ -340,7 +362,6 @@ fn prim_bundle_from_dto(p: PrimDto) -> (Prim, Transform) {
 pub fn send_network_intent(
     online: Option<Res<OnlineSession>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    avatar_state: Res<AvatarState>,
     camera_state: Res<crate::resources::CameraState>,
 ) {
     let Some(sess) = online else {
@@ -362,20 +383,15 @@ pub fn send_network_intent(
     let fly_down = keyboard_input.pressed(KeyCode::ShiftLeft)
         || keyboard_input.pressed(KeyCode::ShiftRight);
 
-    let mut v = Vec3::new(
-        (move_right as i8 - move_left as i8) as f32,
-        0.,
-        (move_backward as i8 - move_forward as i8) as f32,
-    );
-    if v.length_squared() > 0.0001 {
-        v = v.normalize();
-        v = Mat3::from_rotation_y(avatar_state.rotation) * v;
-    }
+    let az = camera_state.azimuth;
+    let v = wish_dir_camera_relative(az, move_forward, move_backward, move_left, move_right);
+    let display_yaw = fox_facing_yaw_from_camera(az);
 
     let _ = sess.intent_tx.send(NetMessage::ClientIntent {
         request_id: 0,
         move_x: v.x,
         move_z: v.z,
+        display_yaw,
         fly_up,
         fly_down,
     });

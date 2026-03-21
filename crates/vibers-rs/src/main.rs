@@ -113,6 +113,8 @@ fn main() {
             avatar::smooth_online_avatar_display
                 .after(network::apply_network_snapshot)
                 .after(avatar::handle_avatar_movement),
+            avatar::smooth_remote_avatars.after(avatar::smooth_online_avatar_display),
+            avatar::tick_remote_avatar_motion_hint.after(avatar::smooth_remote_avatars),
             network::send_network_intent.after(avatar::handle_avatar_movement),
             network::send_observer_update
                 .after(network::apply_network_snapshot)
@@ -120,6 +122,7 @@ fn main() {
             systems::free_camera::camera_controls.after(avatar::smooth_online_avatar_display),
             avatar::spawn_avatar,
             avatar::update_fox_animation.after(avatar::handle_avatar_movement),
+            avatar::update_remote_fox_animation.after(avatar::tick_remote_avatar_motion_hint),
             systems::debug::debug_region_entities.after(rendering::spawn_regions),
         ),
     );
