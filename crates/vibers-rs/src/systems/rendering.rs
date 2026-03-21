@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy::math::primitives::{Cuboid, Cylinder, Sphere, Torus};
 use crate::components::{Region, Prim, PrimShape};
 use crate::systems::tile_loader::{RegionTile, TileKey};
-use crate::utils::tile_utils::REGION_SIZE_METERS;
+use vibe_core::world::REGION_SIZE_METERS;
 
 #[derive(Component)]
 pub struct RegionMesh;
@@ -75,7 +75,8 @@ pub fn spawn_regions(
         });
 
         // Create tile key for this region
-        let tile_key = TileKey::new(region.tile_x, region.tile_y, region.tile_z as u32);
+        let tile_key =
+            TileKey::new(region.tile_x, region.tile_y, region.tile_z.clamp(0, u32::MAX as i64) as u32);
 
         // Spawn region as a flat box at y=0
         let transform = Transform::from_translation(position);

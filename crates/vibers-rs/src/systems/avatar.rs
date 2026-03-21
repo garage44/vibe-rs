@@ -109,6 +109,7 @@ pub fn update_fox_animation(
 }
 
 pub fn handle_avatar_movement(
+    online: Option<Res<crate::resources::OnlineSession>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     mut avatar_query: Query<&mut Transform, With<Avatar>>,
@@ -128,6 +129,31 @@ pub fn handle_avatar_movement(
         return;
     };
     let delta_time = time.delta().as_secs_f32();
+
+    // Online: server owns translation; keep local rotation + fly toggle for intent encoding.
+    if online.is_some() {
+        if keyboard_input.just_pressed(KeyCode::KeyF) {
+            avatar_state.is_flying = !avatar_state.is_flying;
+        }
+        let move_left =
+            keyboard_input.pressed(KeyCode::KeyA) || keyboard_input.pressed(KeyCode::ArrowLeft);
+        let move_right =
+            keyboard_input.pressed(KeyCode::KeyD) || keyboard_input.pressed(KeyCode::ArrowRight);
+        let move_forward =
+            keyboard_input.pressed(KeyCode::KeyW) || keyboard_input.pressed(KeyCode::ArrowUp);
+        let move_backward =
+            keyboard_input.pressed(KeyCode::KeyS) || keyboard_input.pressed(KeyCode::ArrowDown);
+        avatar_state.is_walking =
+            move_forward || move_backward || move_left || move_right;
+        if move_left {
+            avatar_state.rotation += ROTATION_SPEED * delta_time;
+        }
+        if move_right {
+            avatar_state.rotation -= ROTATION_SPEED * delta_time;
+        }
+        transform.rotation = Quat::from_rotation_y(avatar_state.rotation + std::f32::consts::PI);
+        return;
+    }
 
     // Always sync avatar state position with transform
     // This ensures camera can follow the avatar correctly

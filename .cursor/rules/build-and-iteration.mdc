@@ -1,0 +1,50 @@
+---
+description: "Fast Cargo builds and iteration loop for the vibe-rs workspace"
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# Vibe-rs build and iteration (for AI assistants)
+
+This repo is a **Cargo workspace** with three crates. **Scope builds** to what you changed—do not default to `cargo build` for the whole workspace unless you need an integration check.
+
+## Crates
+
+| Crate | Role | Heavy deps |
+|-------|------|------------|
+| `vibe_core` | Shared protocol, `TileKey`, world/tile math | `serde`, `postcard`, `glam` |
+| `vibers-sim` | Headless server (`vibers-sim` binary) | `tokio`, `rusqlite`, `refinery` — **no Bevy** |
+| `vibers-rs` | Bevy client (`vibers-rs` binary) | **Bevy** + atmosphere — slowest crate |
+
+## Preferred commands
+
+- **Verify types after editing shared code**: `cargo check -p vibe_core`
+- **Server / networking / DB only**: `cargo check -p vibers-sim` (much faster than pulling Bevy)
+- **Game client**: `cargo check -p vibers-rs` or `cargo run -p vibers-rs`
+- **Touched `vibe_core` and want dependents**: `cargo check -p vibers-sim -p vibers-rs` (still skip unrelated members when possible)
+
+Avoid `cargo build` without `-p` when a scoped `cargo check -p …` is enough (agents often only need `check`).
+
+## Faster client iteration (optional)
+
+For **local dev** when iterating on `vibers-rs` gameplay/UI, Bevy can link as a dylib:
+
+```bash
+cargo run -p vibers-rs --features fast-dev
+```
+
+Do **not** use `fast-dev` for `--release` or distributable binaries.
+
+## Dev profiles (already in root `Cargo.toml`)
+
+- Dependencies use **opt-level 1** and **many codegen units** in dev—not O3 + single codegen unit (that was very slow).
+- Do not reintroduce `codegen-units = 1` and `opt-level = 3` on `[profile.dev.package."*"]` without an explicit reason.
+
+## Linker
+
+`.cargo/config.toml` uses **clang + lld** on `x86_64-unknown-linux-gnu`. If linking is still a bottleneck, **mold** is often faster (`fuse-ld=mold`); see comments in that file.
+
+## Docs
+
+Human-oriented detail: [README.md](../../README.md) (workspace layout, `fast-dev`, multi-crate commands).

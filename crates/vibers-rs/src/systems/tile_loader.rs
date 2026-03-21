@@ -1,0 +1,134 @@
+use bevy::prelude::*;
+use bevy::render::render_asset::RenderAssetUsages;
+use bevy_image::{Image, ImageSampler};
+use std::collections::HashMap;
+use std::io::Read;
+use std::sync::{Arc, Mutex};
+pub use vibe_core::TileKey;
+
+/// Resource for managing OSM tile loading and caching
+#[derive(Resource)]
+pub struct TileCache {
+    /// Cache of loaded tile handles
+    pub handles: Arc<Mutex<HashMap<TileKey, Handle<Image>>>>,
+    /// Cache of loading states (tiles currently being loaded)
+    pub loading: Arc<Mutex<HashMap<TileKey, bool>>>,
+}
+
+impl Default for TileCache {
+    fn default() -> Self {
+        Self {
+            handles: Arc::new(Mutex::new(HashMap::new())),
+            loading: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
+
+/// Component to mark regions that need tile textures
+#[derive(Component)]
+pub struct RegionTile {
+    pub tile_key: TileKey,
+    pub lod_level: u32, // 0 = high-res (2x2), 1 = medium-res (1x1), 2 = low-res (1x1)
+}
+
+/// Get OSM tile URL for given tile coordinates
+pub fn get_osm_tile_url(key: &TileKey) -> String {
+    format!(
+        "https://tile.openstreetmap.org/{}/{}/{}.png",
+        key.z, key.x, key.y
+    )
+}
+
+/// Load a single OSM tile image
+pub fn load_tile_image(key: &TileKey) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let url = get_osm_tile_url(key);
+    let response = ureq::get(&url).call()?;
+    let mut bytes = Vec::new();
+    response.into_reader().read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+/// System to load OSM tiles for regions
+pub fn load_region_tiles(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    tile_cache: Res<TileCache>,
+    region_query: Query<(Entity, &RegionTile), Without<RegionTileTexture>>,
+) {
+    for (entity, region_tile) in region_query.iter() {
+        let tile_key = region_tile.tile_key.clone();
+
+        {
+            let handles = tile_cache.handles.lock().unwrap();
+            if let Some(handle) = handles.get(&tile_key) {
+                commands.entity(entity).insert(RegionTileTexture {
+                    handle: handle.clone(),
+                });
+                continue;
+            }
+        }
+
+        {
+            let mut loading = tile_cache.loading.lock().unwrap();
+            if loading.contains_key(&tile_key) {
+                continue;
+            }
+            loading.insert(tile_key.clone(), true);
+        }
+
+        match load_tile_image(&tile_key) {
+            Ok(bytes) => match image::load_from_memory(&bytes) {
+                Ok(img) => {
+                    let rgba = img.to_rgba8();
+                    let size = bevy::render::render_resource::Extent3d {
+                        width: rgba.width(),
+                        height: rgba.height(),
+                        depth_or_array_layers: 1,
+                    };
+
+                    let mut bevy_image = Image::new(
+                        size,
+                        bevy::render::render_resource::TextureDimension::D2,
+                        rgba.into_raw(),
+                        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+                        RenderAssetUsages::default(),
+                    );
+
+                    bevy_image.sampler = ImageSampler::linear();
+
+                    let handle = images.add(bevy_image);
+
+                    {
+                        let mut handles = tile_cache.handles.lock().unwrap();
+                        handles.insert(tile_key.clone(), handle.clone());
+                    }
+
+                    commands.entity(entity).insert(RegionTileTexture {
+                        handle: handle.clone(),
+                    });
+
+                    {
+                        let mut loading = tile_cache.loading.lock().unwrap();
+                        loading.remove(&tile_key);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to decode tile image: {}", e);
+                    let mut loading = tile_cache.loading.lock().unwrap();
+                    loading.remove(&tile_key);
+                }
+            },
+            Err(e) => {
+                eprintln!("Failed to load tile {}: {}", tile_key.to_path(), e);
+                let mut loading = tile_cache.loading.lock().unwrap();
+                loading.remove(&tile_key);
+            }
+        }
+    }
+}
+
+/// Component to store the tile texture handle for a region
+#[derive(Component)]
+pub struct RegionTileTexture {
+    pub handle: Handle<Image>,
+}

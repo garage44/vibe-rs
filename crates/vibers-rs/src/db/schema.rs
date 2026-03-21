@@ -72,7 +72,7 @@ fn seed_default_region(conn: &Connection) -> Result<()> {
     )?;
 
     if count == 0 {
-        use crate::utils::tile_utils::{lat_lng_to_tile, REGION_ZOOM_LEVEL};
+        use vibe_core::world::{lat_lng_to_tile, REGION_ZOOM_LEVEL};
 
         // Default region at Groningen, Netherlands
         let groningen_lat = 53.2194;

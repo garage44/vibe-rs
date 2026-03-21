@@ -30,16 +30,29 @@ A Bevy-based 3D virtual world application.
 
 ### Running in Development Mode
 
-Bevy is configured for fast compilation. To run:
+This repo is a **workspace** (`vibe_core`, `vibers-sim`, `vibers-rs`). The game client is `vibers-rs`:
 
 ```bash
-cargo run
+cargo run -p vibers-rs
 ```
 
+**Compile-time tuning (already in root `Cargo.toml`):**
+- Dependencies compile at **opt-level 1** with **many codegen units** (not O3 + single codegen unit, which makes Bevy rebuilds very slow).
+- Your crate uses a similar dev profile so iteration stays reasonable.
+
+**Optional faster incremental links** (especially after changing `vibers-rs` only):
+
+```bash
+cargo run -p vibers-rs --features fast-dev
+```
+
+This enables Bevy’s `dynamic_linking` (loads Bevy as a shared library). Use for local dev only—not for release builds you ship.
+
+**Linker:** `.cargo/config.toml` uses **clang + lld**. Install (`pacman -S lld clang`). **mold** is often faster than lld for huge links—swap `fuse-ld=lld` for `fuse-ld=mold` if you install mold.
+
 **Fast Compilation:**
-- Dev profile is optimized (level 1 for your code, level 3 for dependencies)
-- Bevy compiles quickly in debug mode
-- First build takes longer (~1-2 minutes), subsequent builds are much faster (~5-10 seconds for code changes)
+- First full workspace build still takes a while (Bevy + deps). After that, touching only `vibers-rs` or `vibe_core` rebuilds a subset.
+- Use `cargo run -p vibers-sim` when working on the server only (no Bevy).
 
 This will:
 1. Compile the project in debug mode
@@ -48,29 +61,18 @@ This will:
 4. Render regions as planes and prims as 3D shapes
 5. Spawn an avatar that you can control
 
-**For even faster compilation** (optional):
-- Install `lld` linker: `sudo pacman -S lld`
-- Create `.cargo/config.toml` with:
-  ```toml
-  [target.x86_64-unknown-linux-gnu]
-  linker = "clang"
-  rustflags = ["-C", "link-arg=-fuse-ld=lld"]
-  ```
-
 ### Building for Release
 
-To build an optimized release version:
-
 ```bash
-cargo build --release
+cargo build -p vibers-rs --release
 ```
 
-The optimized binary will be in `target/release/vibers-rs`.
+Binary: `target/release/vibers-rs` (do **not** use `--features fast-dev` for release).
 
 ### Development Workflow
 
-1. **Make changes** to source files in `src/`
-2. **Run** `cargo run` to test changes
+1. **Make changes** under `crates/vibers-rs/src/` (or other workspace crates)
+2. **Run** `cargo run -p vibers-rs` to test changes
 3. **Check for errors** - Rust's compiler will catch type errors and many logic errors at compile time
 4. **Iterate** - Bevy's ECS architecture makes it easy to add new systems and components
 
@@ -78,14 +80,14 @@ The optimized binary will be in `target/release/vibers-rs`.
 
 The project uses Bevy's Entity Component System (ECS) architecture:
 
-- **Components** (`src/components.rs`): Data attached to entities (e.g., `Region`, `Prim`, `Avatar`)
-- **Resources** (`src/resources.rs`): Global state (e.g., `Database`, `GameState`, `AvatarState`)
-- **Systems** (`src/systems/`): Logic that operates on components and resources
+- **Components** (`crates/vibers-rs/src/components.rs`): Data attached to entities
+- **Resources** (`crates/vibers-rs/src/resources.rs`): Global state
+- **Systems** (`crates/vibers-rs/src/systems/`): Logic that operates on components and resources
 
 To add a new feature:
 1. Define components/resources in their respective files
-2. Create a system function in `src/systems/`
-3. Register the system in `src/main.rs` using `.add_systems()`
+2. Create a system under `crates/vibers-rs/src/systems/`
+3. Register the system in `crates/vibers-rs/src/main.rs` using `.add_systems()`
 
 ### Architecture
 
@@ -94,34 +96,25 @@ Architectural decisions are documented in [docs/architecture/adr/](docs/architec
 ### Project Structure
 
 ```
-vibers-rs/
-├── Cargo.toml          # Rust project configuration and dependencies
-├── src/
-│   ├── main.rs         # Application entry point - sets up Bevy app and registers systems
-│   ├── components.rs   # ECS components (Region, Prim, Avatar, PrimShape)
-│   ├── resources.rs    # Global resources (Database, GameState, AvatarState)
-│   ├── systems/        # Game systems - logic that runs each frame
-│   │   ├── mod.rs      # Module exports
-│   │   ├── database.rs # Database initialization and data loading
-│   │   ├── avatar.rs   # Avatar movement and controls
-│   │   ├── camera.rs   # Camera positioning and following
-│   │   └── rendering.rs # Spawning meshes for regions and prims
-│   └── db/
-│       └── schema.rs   # Database schema definitions and initialization
-└── data/
-    └── regions.db      # SQLite database (created automatically on first run)
+vibe-rs/
+├── Cargo.toml              # Workspace root (shared dev profiles)
+├── crates/
+│   ├── vibe_core/src/      # Shared protocol + OSM/tile types
+│   ├── vibers-sim/         # Headless server binary
+│   └── vibers-rs/src/      # Bevy client
+│       ├── main.rs
+│       ├── components.rs
+│       ├── resources.rs
+│       ├── systems/
+│       └── db/
+└── data/regions.db         # Created on first local run (client or sim)
 ```
 
 ### Key Files
 
-- **`src/main.rs`**: Entry point that initializes Bevy, sets up plugins, and registers all systems
-- **`src/components.rs`**: Component definitions for entities (Region, Prim, Avatar)
-- **`src/resources.rs`**: Resource definitions for global state
-- **`src/systems/database.rs`**: Handles SQLite database connection and loading data
-- **`src/systems/avatar.rs`**: Implements avatar movement, physics, and input handling
-- **`src/systems/camera.rs`**: Manages camera positioning and following the avatar
-- **`src/systems/rendering.rs`**: Creates and spawns 3D meshes for regions and prims
-- **`src/db/schema.rs`**: Database schema and table creation logic
+- **`crates/vibers-rs/src/main.rs`**: Bevy app, systems, `--connect` for online mode
+- **`crates/vibers-sim/src/main.rs`**: TCP sim + SQLite migrations
+- **`crates/vibe_core/`**: `NetMessage`, `TileKey`, coordinate helpers
 
 ## Database Schema
 
@@ -130,7 +123,7 @@ The application uses SQLite with two main tables:
 - **regions**: Stores region data with geographic coordinates (latitude, longitude, tile coordinates)
 - **prims**: Stores 3D primitive objects with position, rotation, scale, and color
 
-The database is automatically initialized on first run at `data/regions.db`. See `src/db/schema.rs` for the complete schema definition.
+The database is initialized on first run at `data/regions.db` (client `schema.rs` locally; server uses `vibers-sim/migrations/`).
 
 ## Troubleshooting
 
@@ -151,7 +144,7 @@ If you encounter build errors, reinstall the missing packages:
 After installing, rebuild:
 ```bash
 cargo clean
-cargo build --release
+cargo build -p vibers-rs --release
 ```
 
 ### Other Issues

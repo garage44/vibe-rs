@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use rusqlite::Connection;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
+use tokio::sync::mpsc::UnboundedSender;
+use vibe_core::NetMessage;
 
 #[derive(Resource)]
 pub struct Database {
@@ -72,5 +74,26 @@ impl Default for CameraState {
             pan_offset: None,
             free_camera_rotation: Vec2::new(0.0, 0.0),
         }
+    }
+}
+
+/// When set, client connects to `vibers-sim` instead of loading local SQLite world.
+#[derive(Resource, Clone)]
+pub struct ConnectAddr(pub String);
+
+#[derive(Resource)]
+pub struct OnlineSession {
+    pub intent_tx: UnboundedSender<NetMessage>,
+}
+
+/// Incoming messages from the network thread (`Receiver` is not `Sync`; wrap in `Mutex`).
+#[derive(Resource)]
+pub struct NetworkMailbox {
+    pub rx: Mutex<std::sync::mpsc::Receiver<NetMessage>>,
+}
+
+impl NetworkMailbox {
+    pub fn lock_rx(&self) -> MutexGuard<'_, std::sync::mpsc::Receiver<NetMessage>> {
+        self.rx.lock().expect("network mailbox mutex poisoned")
     }
 }
