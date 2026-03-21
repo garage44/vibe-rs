@@ -1,8 +1,9 @@
 use bevy::animation::graph::{AnimationGraph, AnimationGraphHandle, AnimationNodeIndex};
+use bevy::ecs::query::Or;
 use bevy::gltf::GltfAssetLabel;
 use bevy::prelude::*;
 use bevy::scene::SceneInstanceReady;
-use crate::components::Avatar;
+use crate::components::{Avatar, RemoteAvatar};
 use crate::resources::AvatarState;
 
 // Official Bevy fox model (models/animated/Fox.glb)
@@ -10,6 +11,9 @@ const FOX_GLB: &str = "models/animated/Fox.glb";
 // Bevy fox animations: 0=Survey (idle), 1=Walk, 2=Run
 const IDLE_ANIMATION_INDEX: usize = 0;
 const RUN_ANIMATION_INDEX: usize = 2;
+
+/// Online: blend visual toward authoritative sim position (see `smooth_online_avatar_display`).
+const ONLINE_DISPLAY_SMOOTHING: f32 = 14.0;
 
 const WALK_SPEED: f32 = 8.0;
 const FLY_SPEED: f32 = 40.0;
@@ -33,7 +37,7 @@ pub fn spawn_avatar(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
-    avatar_query: Query<Entity, (With<Avatar>, Without<AvatarFoxLoaded>)>,
+    avatar_query: Query<Entity, (Without<AvatarFoxLoaded>, Or<(With<Avatar>, With<RemoteAvatar>)>)>,
 ) {
     for entity in avatar_query.iter() {
         let (graph, indices) = AnimationGraph::from_clips([
@@ -108,6 +112,26 @@ pub fn update_fox_animation(
     }
 }
 
+/// When online, the server updates `AvatarState::position` at tick rate; smooth `display_position`
+/// and the avatar transform so the third-person camera and world do not jitter.
+pub fn smooth_online_avatar_display(
+    online: Option<Res<crate::resources::OnlineSession>>,
+    mut avatar_state: ResMut<AvatarState>,
+    time: Res<Time>,
+    mut avatar_query: Query<&mut Transform, With<Avatar>>,
+) {
+    let dt = time.delta_secs();
+    if online.is_some() {
+        let alpha = 1.0 - (-ONLINE_DISPLAY_SMOOTHING * dt).exp();
+        avatar_state.display_position = avatar_state.display_position.lerp(avatar_state.position, alpha);
+        if let Ok(mut tf) = avatar_query.single_mut() {
+            tf.translation = avatar_state.display_position;
+        }
+    } else {
+        avatar_state.display_position = avatar_state.position;
+    }
+}
+
 pub fn handle_avatar_movement(
     online: Option<Res<crate::resources::OnlineSession>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
@@ -158,6 +182,7 @@ pub fn handle_avatar_movement(
     // Always sync avatar state position with transform
     // This ensures camera can follow the avatar correctly
     avatar_state.position = transform.translation;
+    avatar_state.display_position = transform.translation;
 
     // Toggle fly mode with F key
     if keyboard_input.just_pressed(KeyCode::KeyF) {
@@ -242,4 +267,5 @@ pub fn handle_avatar_movement(
 
     // Update avatar state position to match transform (important for camera following)
     avatar_state.position = transform.translation;
+    avatar_state.display_position = transform.translation;
 }

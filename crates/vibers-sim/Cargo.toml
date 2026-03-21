@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 bytes.workspace = true
+clap.workspace = true
 futures-util = { version = "0.3", default-features = false, features = ["std", "sink", "async-await"] }
 figment = { workspace = true, features = ["toml", "env"] }
 glam.workspace = true

@@ -1,3 +1,4 @@
+use crate::resources::OsmTileUrlTemplate;
 use bevy::prelude::*;
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy_image::{Image, ImageSampler};
@@ -31,17 +32,24 @@ pub struct RegionTile {
     pub lod_level: u32, // 0 = high-res (2x2), 1 = medium-res (1x1), 2 = low-res (1x1)
 }
 
-/// Get OSM tile URL for given tile coordinates
-pub fn get_osm_tile_url(key: &TileKey) -> String {
-    format!(
-        "https://tile.openstreetmap.org/{}/{}/{}.png",
-        key.z, key.x, key.y
-    )
+/// Build tile URL from template (`{z}`, `{x}`, `{y}`) or default OSM (ADR-004 / ADR-014).
+#[must_use]
+pub fn format_osm_tile_url(template: &str, key: &TileKey) -> String {
+    if template.is_empty() {
+        return format!(
+            "https://tile.openstreetmap.org/{}/{}/{}.png",
+            key.z, key.x, key.y
+        );
+    }
+    template
+        .replace("{z}", &key.z.to_string())
+        .replace("{x}", &key.x.to_string())
+        .replace("{y}", &key.y.to_string())
 }
 
 /// Load a single OSM tile image
-pub fn load_tile_image(key: &TileKey) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    let url = get_osm_tile_url(key);
+pub fn load_tile_image(key: &TileKey, template: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let url = format_osm_tile_url(template, key);
     let response = ureq::get(&url).call()?;
     let mut bytes = Vec::new();
     response.into_reader().read_to_end(&mut bytes)?;
@@ -53,8 +61,14 @@ pub fn load_region_tiles(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     tile_cache: Res<TileCache>,
+    tile_url: Res<OsmTileUrlTemplate>,
     region_query: Query<(Entity, &RegionTile), Without<RegionTileTexture>>,
 ) {
+    let template = tile_url
+        .0
+        .lock()
+        .map(|g| g.clone())
+        .unwrap_or_default();
     for (entity, region_tile) in region_query.iter() {
         let tile_key = region_tile.tile_key.clone();
 
@@ -76,7 +90,7 @@ pub fn load_region_tiles(
             loading.insert(tile_key.clone(), true);
         }
 
-        match load_tile_image(&tile_key) {
+        match load_tile_image(&tile_key, &template) {
             Ok(bytes) => match image::load_from_memory(&bytes) {
                 Ok(img) => {
                     let rgba = img.to_rgba8();

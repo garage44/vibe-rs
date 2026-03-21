@@ -7,13 +7,13 @@ pub fn debug_region_entities(
     region_with_mesh: Query<Entity, (With<Region>, With<RegionMesh>)>,
     region_without_mesh: Query<Entity, (With<Region>, Without<RegionMesh>)>,
 ) {
-    println!("=== REGION DEBUG ===");
-    println!("Total regions: {}", all_regions.iter().count());
-    println!("Regions WITH RegionMesh: {}", region_with_mesh.iter().count());
-    println!("Regions WITHOUT RegionMesh: {}", region_without_mesh.iter().count());
-
+    tracing::debug!(
+        total = all_regions.iter().count(),
+        with_mesh = region_with_mesh.iter().count(),
+        without_mesh = region_without_mesh.iter().count(),
+        "region mesh status"
+    );
     for (entity, region) in all_regions.iter() {
-        println!("Region entity {:?}: id={}, name='{}'", entity, region.id, region.name);
+        tracing::trace!("region entity {:?} id={} name={}", entity, region.id, region.name);
     }
-    println!("===================");
 }

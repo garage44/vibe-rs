@@ -1,0 +1,21 @@
+//! CLI overrides (ADR-014).
+
+use clap::Parser;
+
+#[derive(Parser, Debug)]
+#[command(name = "vibers-sim", about = "Headless vibers simulation server")]
+pub struct SimCli {
+    #[arg(long, help = "TCP listen address (overrides vibe.toml / VIBE_listen)")]
+    pub listen: Option<String>,
+    #[arg(long, help = "SQLite path (overrides VIBE_database_path)")]
+    pub database_path: Option<String>,
+    #[arg(long, help = "Simulation tick rate (Hz)")]
+    pub tick_hz: Option<f32>,
+    #[arg(long, help = "AOI radius in sim units (ADR-012)")]
+    pub aoi_radius: Option<f32>,
+    #[arg(
+        long,
+        help = "OSM tile URL template with {z}/{x}/{y} (sent to clients at handshake)"
+    )]
+    pub osm_tile_url_template: Option<String>,
+}

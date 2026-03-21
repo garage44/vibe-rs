@@ -1,21 +1,30 @@
 //! TCP client for `--connect` (ADR-008, ADR-009).
 
-use crate::components::{Prim, PrimShape, Region};
-use crate::resources::{AvatarState, ConnectAddr, GameState, NetworkMailbox, OnlineSession};
+use crate::components::{Avatar, Prim, PrimShape, Region, RemoteAvatar};
+use crate::resources::{
+    AvatarState, ConnectAddr, GameState, LocalAvatarSimId, NetworkMailbox, NetworkSyncState,
+    OnlineSession, OsmTileUrlTemplate,
+};
 use bevy::prelude::*;
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
-use std::sync::mpsc;
+use std::collections::HashSet;
+use std::sync::{mpsc, Arc, Mutex};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use vibe_core::{
-    decode_message, encode_message, NetMessage, PrimDto, RegionDto, PROTOCOL_VERSION,
+    decode_app_frame, encode_app_frame, AvatarStateDto, NetMessage, PrimDto, RegionDto,
+    PROTOCOL_VERSION,
 };
 
 const MAX_FRAME: usize = 32 * 1024 * 1024;
 
 pub fn spawn_network_thread(mut commands: Commands, addr: Res<ConnectAddr>) {
+    let tile_template = Arc::new(Mutex::new(String::new()));
+    let tile_for_thread = tile_template.clone();
+    commands.insert_resource(OsmTileUrlTemplate(tile_template));
+
     let (out_tx, out_rx) = mpsc::channel::<NetMessage>();
     let (intent_tx, intent_rx) = tokio::sync::mpsc::unbounded_channel();
     let connect_to = addr.0.clone();
@@ -30,20 +39,24 @@ pub fn spawn_network_thread(mut commands: Commands, addr: Res<ConnectAddr>) {
                 return;
             }
         };
-        if let Err(e) = rt.block_on(client_loop(connect_to, out_tx, intent_rx)) {
+        if let Err(e) =
+            rt.block_on(client_loop(connect_to, out_tx, intent_rx, tile_for_thread))
+        {
             eprintln!("network client ended: {e:#}");
         }
     });
     commands.insert_resource(NetworkMailbox {
-        rx: std::sync::Mutex::new(out_rx),
+        rx: Mutex::new(out_rx),
     });
     commands.insert_resource(OnlineSession { intent_tx });
+    commands.insert_resource(NetworkSyncState::default());
 }
 
 async fn client_loop(
     addr: String,
     out_tx: mpsc::Sender<NetMessage>,
     mut intent_rx: UnboundedReceiver<NetMessage>,
+    tile_template: Arc<Mutex<String>>,
 ) -> anyhow::Result<()> {
     let stream = TcpStream::connect(&addr).await?;
     tracing::info!("connected to {addr}");
@@ -55,7 +68,7 @@ async fn client_loop(
             .new_codec(),
     );
 
-    let hello = encode_message(&NetMessage::ClientHello {
+    let hello = encode_app_frame(&NetMessage::ClientHello {
         protocol_version: PROTOCOL_VERSION,
         client_token: format!("vibers-rs-{}", uuid::Uuid::new_v4()),
     })?;
@@ -66,18 +79,26 @@ async fn client_loop(
         .await
         .transpose()?
         .ok_or_else(|| anyhow::anyhow!("closed before ServerHelloAck"))?;
-    match decode_message(&ack_bytes)? {
+    let ack_msg = decode_app_frame(&ack_bytes)?;
+    match &ack_msg {
         NetMessage::ServerHelloAck {
             tick_hz,
             your_avatar_id,
+            osm_tile_url_template,
             ..
         } => {
+            if let Ok(mut g) = tile_template.lock() {
+                *g = osm_tile_url_template.clone();
+            }
             tracing::info!(tick_hz, your_avatar_id, "handshake ok");
         }
         NetMessage::ServerError { message, .. } => {
             anyhow::bail!("server error: {message}");
         }
         other => anyhow::bail!("unexpected first server message: {other:?}"),
+    }
+    if out_tx.send(ack_msg).is_err() {
+        return Ok(());
     }
 
     loop {
@@ -86,7 +107,7 @@ async fn client_loop(
             msg = intent_rx.recv() => {
                 match msg {
                     Some(m) => {
-                        let b = encode_message(&m)?;
+                        let b = encode_app_frame(&m)?;
                         framed.send(Bytes::from(b)).await?;
                     }
                     None => break,
@@ -97,7 +118,7 @@ async fn client_loop(
                     None => break,
                     Some(Err(e)) => return Err(e.into()),
                     Some(Ok(bytes)) => {
-                        let m = decode_message(&bytes)?;
+                        let m = decode_app_frame(&bytes)?;
                         if out_tx.send(m).is_err() {
                             break;
                         }
@@ -109,54 +130,176 @@ async fn client_loop(
     Ok(())
 }
 
-/// Apply [`NetMessage::WorldSnapshot`] from the network thread (authoritative when online).
+/// Apply network messages (authoritative when online).
 pub fn apply_network_snapshot(
     mut commands: Commands,
     mailbox: Option<Res<NetworkMailbox>>,
+    mut sync: Option<ResMut<NetworkSyncState>>,
     mut game_state: ResMut<GameState>,
     mut avatar_state: ResMut<AvatarState>,
+    mut local_sim_id: ResMut<LocalAvatarSimId>,
     region_entities: Query<Entity, With<Region>>,
-    prim_entities: Query<Entity, With<Prim>>,
-    mut avatar_tf: Query<&mut Transform, With<crate::components::Avatar>>,
+    prim_entities: Query<(Entity, &Prim)>,
+    mut avatar_tf: Query<&mut Transform, (With<Avatar>, Without<RemoteAvatar>)>,
+    mut remote_avatars: Query<(Entity, &RemoteAvatar, &mut Transform), Without<Avatar>>,
 ) {
     let Some(mb) = mailbox else {
         return;
     };
     while let Ok(msg) = mb.lock_rx().try_recv() {
-        let NetMessage::WorldSnapshot {
-            regions,
-            prims,
-            avatars,
-            tick,
-        } = msg
-        else {
-            continue;
-        };
-        tracing::debug!(tick, "world snapshot");
-        for e in region_entities.iter() {
-            commands.entity(e).despawn();
-        }
-        for e in prim_entities.iter() {
-            commands.entity(e).despawn();
-        }
-        game_state.regions_loaded = false;
-        game_state.prims_loaded = false;
-
-        for r in regions {
-            commands.spawn(region_from_dto(r));
-        }
-        game_state.regions_loaded = true;
-
-        for p in prims {
-            commands.spawn(prim_bundle_from_dto(p));
-        }
-        game_state.prims_loaded = true;
-
-        if let Some(a) = avatars.first() {
-            if let Ok(mut tf) = avatar_tf.single_mut() {
-                tf.translation = a.position;
+        match msg {
+            NetMessage::ServerHelloAck { your_avatar_id, .. } => {
+                local_sim_id.0 = Some(your_avatar_id);
             }
-            avatar_state.position = a.position;
+            NetMessage::WorldSnapshot {
+                regions,
+                prims,
+                avatars,
+                tick,
+            } => {
+                tracing::debug!(tick, "world snapshot");
+                let repeat_tick = sync
+                    .as_ref()
+                    .is_some_and(|s| s.received_initial_world);
+
+                if repeat_tick {
+                    apply_local_avatar_pose(&avatars, local_sim_id.0, &mut avatar_state);
+                    sync_remote_avatar_entities(
+                        &mut commands,
+                        &avatars,
+                        local_sim_id.0,
+                        &mut remote_avatars,
+                    );
+                    continue;
+                }
+
+                let region_es: Vec<Entity> = region_entities.iter().collect();
+                for e in region_es {
+                    commands.entity(e).despawn();
+                }
+                let prim_es: Vec<Entity> = prim_entities.iter().map(|(e, _)| e).collect();
+                for e in prim_es {
+                    commands.entity(e).despawn();
+                }
+                let remote_es: Vec<Entity> = remote_avatars.iter().map(|(e, _, _)| e).collect();
+                for e in remote_es {
+                    commands.entity(e).despawn();
+                }
+                game_state.regions_loaded = false;
+                game_state.prims_loaded = false;
+
+                for r in regions {
+                    commands.spawn(region_from_dto(r));
+                }
+                game_state.regions_loaded = true;
+
+                for p in prims {
+                    commands.spawn(prim_bundle_from_dto(p));
+                }
+                game_state.prims_loaded = true;
+
+                apply_local_avatar_pose_full(
+                    &avatars,
+                    local_sim_id.0,
+                    &mut avatar_state,
+                    &mut avatar_tf,
+                );
+                sync_remote_avatar_entities(
+                    &mut commands,
+                    &avatars,
+                    local_sim_id.0,
+                    &mut remote_avatars,
+                );
+
+                if let Some(s) = sync.as_mut() {
+                    s.received_initial_world = true;
+                }
+            }
+            NetMessage::PrimRemoved { id } => {
+                for (e, p) in prim_entities.iter() {
+                    if p.id == id {
+                        commands.entity(e).despawn();
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn apply_local_avatar_pose(avatars: &[AvatarStateDto], local_id: Option<u64>, avatar_state: &mut AvatarState) {
+    let Some(a) = local_avatar_dto(avatars, local_id) else {
+        return;
+    };
+    avatar_state.position = a.position;
+}
+
+fn apply_local_avatar_pose_full(
+    avatars: &[AvatarStateDto],
+    local_id: Option<u64>,
+    avatar_state: &mut AvatarState,
+    avatar_tf: &mut Query<&mut Transform, (With<Avatar>, Without<RemoteAvatar>)>,
+) {
+    let Some(a) = local_avatar_dto(avatars, local_id) else {
+        return;
+    };
+    avatar_state.position = a.position;
+    avatar_state.display_position = a.position;
+    if let Ok(mut tf) = avatar_tf.single_mut() {
+        tf.translation = a.position;
+    }
+}
+
+fn local_avatar_dto<'a>(avatars: &'a [AvatarStateDto], local_id: Option<u64>) -> Option<&'a AvatarStateDto> {
+    if let Some(id) = local_id {
+        avatars.iter().find(|a| a.id == id)
+    } else {
+        avatars.first()
+    }
+}
+
+fn sync_remote_avatar_entities(
+    commands: &mut Commands,
+    avatars: &[AvatarStateDto],
+    local_id: Option<u64>,
+    remote_query: &mut Query<(Entity, &RemoteAvatar, &mut Transform), Without<Avatar>>,
+) {
+    let expected: HashSet<u64> = avatars
+        .iter()
+        .filter(|a| Some(a.id) != local_id)
+        .map(|a| a.id)
+        .collect();
+
+    let stale: Vec<Entity> = remote_query
+        .iter()
+        .filter(|(_, r, _)| !expected.contains(&r.sim_id))
+        .map(|(e, _, _)| e)
+        .collect();
+    for e in stale {
+        commands.entity(e).despawn();
+    }
+
+    for a in avatars {
+        if Some(a.id) == local_id {
+            continue;
+        }
+        let mut found = false;
+        for (_, r, mut tf) in remote_query.iter_mut() {
+            if r.sim_id == a.id {
+                tf.translation = a.position;
+                tf.rotation = Quat::from_rotation_y(a.yaw + std::f32::consts::PI);
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            commands.spawn((
+                RemoteAvatar { sim_id: a.id },
+                Transform::from_translation(a.position)
+                    .with_rotation(Quat::from_rotation_y(a.yaw + std::f32::consts::PI))
+                    .with_scale(Vec3::splat(0.02)),
+            ));
         }
     }
 }
@@ -170,6 +313,7 @@ fn region_from_dto(r: RegionDto) -> Region {
         tile_x: r.tile_x,
         tile_y: r.tile_y,
         tile_z: r.tile_z,
+        sim_origin: Some(Vec3::new(r.sim_x, r.sim_y, r.sim_z)),
     }
 }
 

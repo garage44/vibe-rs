@@ -27,8 +27,7 @@ pub fn spawn_regions(
     }
 
     if query_count == 0 && total_regions > 0 {
-        // Regions exist but query isn't matching - this means entities already have RegionMesh or Prim
-        println!("WARNING: Found {} regions but query matched 0 entities (entities may already have RegionMesh)", total_regions);
+        // All region entities already have meshes (or are filtered out) — normal steady state.
         return;
     }
 
@@ -41,11 +40,11 @@ pub fn spawn_regions(
     let mut spawned_count = 0;
     for (entity, region) in region_query.iter() {
         spawned_count += 1;
-        // For single region, place at origin. For multiple regions, use grid layout
-        let position = if total_regions == 1 {
-            Vec3::new(0.0, 0.0, 0.0) // Place single region at origin
+        let position = if let Some(p) = region.sim_origin {
+            p
+        } else if total_regions == 1 {
+            Vec3::new(0.0, 0.0, 0.0)
         } else {
-            // Find index of this region in sorted list
             let index = region_ids.iter().position(|&id| id == region.id).unwrap_or(0);
             let row = (index as f32 / grid_size).floor() as i32;
             let col = index % grid_size as usize;
@@ -57,7 +56,7 @@ pub fn spawn_regions(
             )
         };
 
-        println!("Spawning region '{}' at position {:?}", region.name, position);
+        tracing::debug!("spawning region '{}' at {:?}", region.name, position);
 
         // Create a simple flat box as the region (easier than plane rotation)
         // Box with very small height to act as a flat plane
@@ -95,7 +94,7 @@ pub fn spawn_regions(
     }
 
     if spawned_count > 0 {
-        println!("Spawned {} region meshes", spawned_count);
+        tracing::debug!("spawned {} region meshes", spawned_count);
     }
 }
 

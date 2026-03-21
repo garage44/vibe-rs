@@ -10,13 +10,37 @@ edition = "2021"
 [workspace.dependencies]
 anyhow = "1.0"
 approx = "0.5"
+# Slimmer than `default`: drops UI, 2D sprite stack, audio, gamepads, gizmos, picking — less LLVM work per build.
 bevy = { version = "0.16", default-features = false, features = [
-    "default",
     "animation",
-    "x11",
+    "async_executor",
+    "bevy_asset",
+    "bevy_core_pipeline",
+    "bevy_gltf",
+    "bevy_log",
+    "bevy_pbr",
+    "bevy_render",
+    "bevy_scene",
+    "bevy_state",
+    "bevy_window",
+    "bevy_winit",
+    "custom_cursor",
+    "default_font",
+    "hdr",
+    "multi_threaded",
+    "png",
+    "smaa_luts",
+    "std",
+    "tonemapping_luts",
     "wayland",
+    "x11",
 ] }
-bevy_atmosphere = { version = "0.13", features = ["nishita"] }
+# `detection` spawns the skybox in PostUpdate, which can hit Bevy 0.16 material specialization panics
+# (see bevy#18980 / #19064). We spawn the skybox manually in Startup instead.
+bevy_atmosphere = { version = "0.13", default-features = false, features = [
+    "nishita",
+    "procedural",
+] }
 bevy_image = "0.16"
 bytes = "1.9"
 clap = { version = "4.5", features = ["derive"] }
@@ -43,19 +67,28 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ureq = { version = "2.9", features = ["gzip"] }
 uuid = { version = "1.11", features = ["v4", "serde"] }
 
-# Dev compile time: avoid codegen-units=1 and O3 on all deps (Bevy rebuilds become very slow).
-# O1 + many codegen units is the usual Bevy dev compromise (still playable, much faster than O3+CU1).
+# Default dev: fast dependency rebuilds; workspace crates at O1 (Bevy suggests O1+ for playable debug — see link in README).
+# https://bevy.org/learn/quick-start/getting-started/setup/#compile-with-performance-optimizations
 [profile.dev]
-opt-level = 0
+opt-level = 1
 incremental = true
 codegen-units = 256
 debug = 1
+# Faster incremental links on Linux: debug info in `.dwo` files instead of monolithic binary.
+split-debuginfo = "unpacked"
 
 [profile.dev.package."*"]
-opt-level = 1
+opt-level = 0
 codegen-units = 256
 
-# Optional: slightly more optimization for the binary only when iterating on vibers-rs itself.
-[profile.dev.package.vibers-rs]
-opt-level = 1
-codegen-units = 32
+# Full Bevy book recipe: O3 on all dependencies — better dev *runtime*, much slower clean / dep rebuilds.
+# https://bevy.org/learn/quick-start/getting-started/setup/#compile-with-performance-optimizations
+[profile.dev-bevy]
+inherits = "dev"
+
+[profile.dev-bevy.package."*"]
+opt-level = 3
+codegen-units = 256
+
+[profile.dev-bevy.package.vibe_core]
+opt-level = 0

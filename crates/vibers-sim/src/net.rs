@@ -3,12 +3,18 @@ use crate::state::SimWorld;
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, RwLock};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
-use vibe_core::{decode_message, encode_message, NetMessage, ProtocolError, PROTOCOL_VERSION};
+use vibe_core::{
+    decode_app_frame, encode_app_frame, NetMessage, ProtocolError, PROTOCOL_VERSION,
+};
 
 const MAX_FRAME: usize = 32 * 1024 * 1024;
+/// ADR-012: simple per-connection rate limits (token-bucket style, fixed interval).
+const MIN_INTENT_INTERVAL: Duration = Duration::from_millis(50);
+const MIN_OBSERVER_INTERVAL: Duration = Duration::from_millis(100);
 
 pub async fn handle_connection(
     stream: TcpStream,
@@ -30,14 +36,14 @@ pub async fn handle_connection(
         .await
         .transpose()?
         .ok_or_else(|| anyhow::anyhow!("closed before hello"))?;
-    let msg = decode_message(&first)?;
+    let msg = decode_app_frame(&first)?;
     match msg {
         NetMessage::ClientHello {
             protocol_version,
             client_token,
         } => {
             if protocol_version != PROTOCOL_VERSION {
-                let err = encode_message(&NetMessage::ServerError {
+                let err = encode_app_frame(&NetMessage::ServerError {
                     request_id: 0,
                     code: 1,
                     message: format!("version {protocol_version} not supported"),
@@ -46,10 +52,11 @@ pub async fn handle_connection(
                 return Err(ProtocolError::UnsupportedVersion(protocol_version).into());
             }
             tracing::info!(token = %client_token, "client hello");
-            let ack = encode_message(&NetMessage::ServerHelloAck {
+            let ack = encode_app_frame(&NetMessage::ServerHelloAck {
                 session_id: uuid::Uuid::new_v4(),
                 tick_hz: config.tick_hz,
                 your_avatar_id: avatar_id,
+                osm_tile_url_template: config.osm_tile_url_template.clone(),
             })?;
             framed.send(Bytes::from(ack)).await?;
         }
@@ -57,6 +64,13 @@ pub async fn handle_connection(
             return Err(ProtocolError::ExpectedHello(format!("{other:?}").into()).into());
         }
     }
+
+    let mut last_intent = Instant::now()
+        .checked_sub(MIN_INTENT_INTERVAL)
+        .unwrap_or_else(Instant::now);
+    let mut last_observer = Instant::now()
+        .checked_sub(MIN_OBSERVER_INTERVAL)
+        .unwrap_or_else(Instant::now);
 
     loop {
         tokio::select! {
@@ -66,20 +80,39 @@ pub async fn handle_connection(
                     None => break,
                     Some(Err(e)) => return Err(e.into()),
                     Some(Ok(bytes)) => {
-                        let msg = decode_message(&bytes)?;
+                        let msg = decode_app_frame(&bytes)?;
                         match msg {
-                            NetMessage::ClientIntent { move_x, move_z, fly_up, fly_down, .. } => {
+                            NetMessage::ClientIntent {
+                                move_x,
+                                move_z,
+                                fly_up,
+                                fly_down,
+                                ..
+                            } => {
+                                if last_intent.elapsed() < MIN_INTENT_INTERVAL {
+                                    continue;
+                                }
+                                last_intent = Instant::now();
                                 let mut w = world.write().await;
                                 w.apply_intent(avatar_id, move_x, move_z, fly_up, fly_down);
                             }
                             NetMessage::ObserverUpdate { position } => {
+                                if last_observer.elapsed() < MIN_OBSERVER_INTERVAL {
+                                    continue;
+                                }
+                                last_observer = Instant::now();
                                 let mut w = world.write().await;
                                 w.set_observer(position);
                             }
                             NetMessage::ClientHello { .. } => {
                                 tracing::warn!("duplicate hello ignored");
                             }
-                            _ => tracing::debug!(?msg, "ignored message from client"),
+                            NetMessage::PrimRemoved { .. }
+                            | NetMessage::WorldSnapshot { .. }
+                            | NetMessage::ServerHelloAck { .. }
+                            | NetMessage::ServerError { .. } => {
+                                tracing::debug!(?msg, "ignored message from client");
+                            }
                         }
                     }
                 }
@@ -98,7 +131,7 @@ pub async fn handle_connection(
     Ok(())
 }
 
-/// Periodically steps simulation and broadcasts postcard-encoded [`NetMessage::WorldSnapshot`].
+/// Periodically steps simulation and broadcasts postcard-encoded [`NetMessage::WorldSnapshot`] in app frames.
 pub async fn tick_loop(
     world: Arc<RwLock<SimWorld>>,
     config: Arc<SimConfig>,
@@ -114,7 +147,7 @@ pub async fn tick_loop(
         w.step(period.as_secs_f32());
         let snap = w.snapshot(tick);
         drop(w);
-        match encode_message(&snap) {
+        match encode_app_frame(&snap) {
             Ok(bytes) => {
                 let _ = tx.send(bytes);
             }

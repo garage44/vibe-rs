@@ -9,6 +9,8 @@ pub struct Region {
     pub tile_x: i64,
     pub tile_y: i64,
     pub tile_z: i64,
+    /// When set (network snapshot), region mesh uses this sim position; otherwise legacy grid layout.
+    pub sim_origin: Option<Vec3>,
 }
 
 #[derive(Component, Debug, Clone)]
@@ -22,6 +24,12 @@ pub struct Prim {
 
 #[derive(Component, Debug, Clone)]
 pub struct Avatar;
+
+/// Another client’s avatar (sim id from `WorldSnapshot`); same fox mesh as [`Avatar`].
+#[derive(Component, Debug, Clone, Copy)]
+pub struct RemoteAvatar {
+    pub sim_id: u64,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrimShape {

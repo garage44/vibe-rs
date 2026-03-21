@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use rusqlite::Connection;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::sync::mpsc::UnboundedSender;
 use vibe_core::NetMessage;
 
@@ -18,7 +18,10 @@ pub struct GameState {
 
 #[derive(Resource)]
 pub struct AvatarState {
+    /// Authoritative sim position (from server when online).
     pub position: Vec3,
+    /// Visual follow target: smoothed toward `position` online so camera and mesh do not stutter at tick rate.
+    pub display_position: Vec3,
     pub rotation: f32,
     pub is_flying: bool,
     pub is_walking: bool,
@@ -26,8 +29,10 @@ pub struct AvatarState {
 
 impl Default for AvatarState {
     fn default() -> Self {
+        let p = Vec3::new(0.0, 2.2, 0.0);
         Self {
-            position: Vec3::new(0.0, 2.2, 0.0),
+            position: p,
+            display_position: p,
             rotation: 0.0,
             is_flying: false,
             is_walking: false,
@@ -77,6 +82,16 @@ impl Default for CameraState {
     }
 }
 
+/// OSM tile URL template (`{z}`/`{x}`/`{y}`); filled from server handshake when online (ADR-014).
+#[derive(Resource, Clone)]
+pub struct OsmTileUrlTemplate(pub Arc<Mutex<String>>);
+
+impl Default for OsmTileUrlTemplate {
+    fn default() -> Self {
+        Self(Arc::new(Mutex::new(String::new())))
+    }
+}
+
 /// When set, client connects to `vibers-sim` instead of loading local SQLite world.
 #[derive(Resource, Clone)]
 pub struct ConnectAddr(pub String);
@@ -85,6 +100,16 @@ pub struct ConnectAddr(pub String);
 pub struct OnlineSession {
     pub intent_tx: UnboundedSender<NetMessage>,
 }
+
+/// After the first `WorldSnapshot`, static regions/prims are not torn down each sim tick (ADR-011).
+#[derive(Resource, Default)]
+pub struct NetworkSyncState {
+    pub received_initial_world: bool,
+}
+
+/// Set from `ServerHelloAck.your_avatar_id` so we can pick the local row in `WorldSnapshot::avatars`.
+#[derive(Resource, Default, Clone, Copy)]
+pub struct LocalAvatarSimId(pub Option<u64>);
 
 /// Incoming messages from the network thread (`Receiver` is not `Sync`; wrap in `Mutex`).
 #[derive(Resource)]

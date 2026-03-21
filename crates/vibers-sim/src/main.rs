@@ -1,10 +1,12 @@
 //! Headless simulation server (ADR-007, ADR-008, ADR-010–014).
 
+mod cli;
 mod config;
 mod db;
 mod net;
 mod state;
 
+use clap::Parser;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, RwLock};
@@ -18,12 +20,16 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let config = Arc::new(config::SimConfig::load()?);
+    let sim_cli = cli::SimCli::parse();
+    let mut config = config::SimConfig::load()?;
+    config.apply_cli(&sim_cli);
+    let config = Arc::new(config);
     tracing::info!(
         listen = %config.listen,
         db = %config.database_path,
         tick_hz = config.tick_hz,
         aoi = config.aoi_radius,
+        tile_template = %config.osm_tile_url_template,
         "vibers-sim"
     );
 

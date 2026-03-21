@@ -6,7 +6,8 @@ pub mod world;
 
 pub use error::ProtocolError;
 pub use protocol::{
-    decode_message, encode_message, AvatarStateDto, NetMessage, PrimDto, RegionDto,
+    decode_app_frame, decode_message, encode_app_frame, encode_message, message_kind,
+    message_request_id, AvatarStateDto, MessageKind, NetMessage, PrimDto, RegionDto,
     PROTOCOL_VERSION,
 };
 pub use world::{

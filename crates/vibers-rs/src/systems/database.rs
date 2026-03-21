@@ -82,10 +82,11 @@ pub fn load_regions(
                     tile_x: region.tile_x,
                     tile_y: region.tile_y,
                     tile_z: region.tile_z,
+                    sim_origin: None,
                 });
-                println!("DEBUG: Spawned region entity for '{}'", region.name);
+                tracing::debug!("spawned region entity for '{}'", region.name);
             }
-            println!("Loaded {} regions", count);
+            tracing::info!("loaded {} regions", count);
             game_state.regions_loaded = true;
         }
         Err(e) => {
@@ -168,7 +169,7 @@ pub fn load_prims(
                         .with_scale(Vec3::new(prim.scale_x, prim.scale_y, prim.scale_z)),
                 ));
             }
-            println!("Loaded {} prims", count);
+            tracing::info!("loaded {} prims", count);
             game_state.prims_loaded = true;
         }
         Err(e) => {

@@ -1,5 +1,8 @@
+use bevy::pbr::{NotShadowCaster, NotShadowReceiver};
 use bevy::prelude::*;
+use bevy_atmosphere::plugin::AtmosphereSkyBox;
 use bevy_atmosphere::prelude::*;
+use bevy_atmosphere::skybox::{self, AtmosphereSkyBoxMaterial};
 
 use crate::resources::{AvatarState, CameraState, CameraMode};
 use crate::systems::rendering::RegionMesh;
@@ -13,18 +16,36 @@ const FREE_CAMERA_SPEED_FAST: f32 = 50.0;
 const MOUSE_SENSITIVITY: f32 = 0.002;
 const MIN_CAMERA_HEIGHT: f32 = 0.5;
 
-pub fn setup_camera(mut commands: Commands, mut camera_state: ResMut<CameraState>) {
+/// Match [`bevy_atmosphere::settings::SkyboxCreationMode`] fallback when projection far is unavailable.
+const SKYBOX_MESH_FAR: f32 = 1000.0;
+
+pub fn setup_camera(
+    mut commands: Commands,
+    mut camera_state: ResMut<CameraState>,
+    sky_material: Res<AtmosphereSkyBoxMaterial>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
     camera_state.mode = CameraMode::Avatar;
     camera_state.distance = 5.0;
     camera_state.azimuth = 0.0;
     camera_state.pitch = std::f32::consts::PI / 6.0;
 
-    commands.spawn((
-        Camera3d::default(),
-        Transform::from_xyz(0.0, 10.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
-        AtmosphereCamera::default(),
-        FreeCamera,
-    ));
+    commands
+        .spawn((
+            Camera3d::default(),
+            Transform::from_xyz(0.0, 10.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
+            AtmosphereCamera::default(),
+            FreeCamera,
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Mesh3d(meshes.add(skybox::mesh(SKYBOX_MESH_FAR))),
+                MeshMaterial3d(sky_material.0.clone()),
+                AtmosphereSkyBox,
+                NotShadowCaster,
+                NotShadowReceiver,
+            ));
+        });
 }
 
 pub fn camera_mode_toggle(
@@ -70,8 +91,8 @@ pub fn camera_controls(
 
     match camera_state.mode {
         CameraMode::Avatar => {
-            // Third-person camera following avatar
-            let avatar_pos = avatar_state.position;
+            // Third-person camera following avatar (smoothed when online — see `AvatarState::display_position`)
+            let avatar_pos = avatar_state.display_position;
 
             // Handle mouse wheel zoom
             for event in mouse_wheel_events.read() {
@@ -115,8 +136,9 @@ pub fn camera_controls(
                 target_position.y = min_height;
             }
 
-            // Smooth camera movement
-            camera_transform.translation = camera_transform.translation.lerp(target_position, 0.1);
+            // Framerate-independent smoothing so orbit matches the follow target
+            let cam_alpha = 1.0 - (-12.0_f32 * delta_time).exp();
+            camera_transform.translation = camera_transform.translation.lerp(target_position, cam_alpha);
             camera_transform.look_at(avatar_pos + Vec3::Y * 1.5, Vec3::Y);
         }
         CameraMode::Free => {

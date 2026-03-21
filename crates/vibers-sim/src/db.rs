@@ -57,6 +57,9 @@ pub fn load_world(conn: &Connection) -> anyhow::Result<(Vec<RegionDto>, Vec<Prim
                 tile_x: row.get(4)?,
                 tile_y: row.get(5)?,
                 tile_z: row.get(6)?,
+                sim_x: 0.0,
+                sim_y: 0.0,
+                sim_z: 0.0,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;

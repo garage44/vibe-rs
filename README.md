@@ -36,23 +36,45 @@ This repo is a **workspace** (`vibe_core`, `vibers-sim`, `vibers-rs`). The game 
 cargo run -p vibers-rs
 ```
 
-**Compile-time tuning (already in root `Cargo.toml`):**
-- Dependencies compile at **opt-level 1** with **many codegen units** (not O3 + single codegen unit, which makes Bevy rebuilds very slow).
-- Your crate uses a similar dev profile so iteration stays reasonable.
+**Assets:** the client loads from **`assets/`** at the workspace root (e.g. `models/animated/Fox.glb` for the avatar). See [`assets/README.md`](assets/README.md).
 
-**Optional faster incremental links** (especially after changing `vibers-rs` only):
+**Compile-time tuning (root `Cargo.toml`):** this repo follows [Bevy’s setup guide](https://bevy.org/learn/quick-start/getting-started/setup/) with a **compile-first default** and an optional **playable-debug** profile.
+
+- **Bevy feature set:** slimmer than upstream `default` (3D, glTF, animation, windowing only)—less to type-check per rebuild. Re-enable features in the workspace `bevy` entry if you add UI, audio, picking, etc.
+- **Default `dev` profile:** workspace crates at **`opt-level = 1`** (aligned with [Compile with performance optimizations](https://bevy.org/learn/quick-start/getting-started/setup/#compile-with-performance-optimizations)); **dependencies at `opt-level = 0`** so Bevy/wgpu rebuild faster than the book’s `opt-level = 3` on `*`.
+- **`split-debuginfo = "unpacked"`** (Linux): cheaper incremental **links** after large compiles.
+
+**Smoother framerate in debug** (if the client feels sluggish — trades much slower dependency rebuilds):
+
+```bash
+cargo run -p vibers-rs --profile dev-bevy
+```
+
+`dev-bevy` matches the book’s **`[profile.dev.package."*"] opt-level = 3`** (with `vibe_core` left at `0`). See the same [Bevy setup § Compile with performance optimizations](https://bevy.org/learn/quick-start/getting-started/setup/#compile-with-performance-optimizations).
+
+**Faster iterative compiles / links** ([Enable fast compiles](https://bevy.org/learn/quick-start/getting-started/setup/#enable-fast-compiles-optional)):
 
 ```bash
 cargo run -p vibers-rs --features fast-dev
 ```
 
-This enables Bevy’s `dynamic_linking` (loads Bevy as a shared library). Use for local dev only—not for release builds you ship.
+`fast-dev` turns on Bevy’s `dynamic_linking`. Combine with `--profile dev-bevy` if you want both. Do not ship release builds with `fast-dev`.
 
-**Linker:** `.cargo/config.toml` uses **clang + lld**. Install (`pacman -S lld clang`). **mold** is often faster than lld for huge links—swap `fuse-ld=lld` for `fuse-ld=mold` if you install mold.
+**Linker:** `.cargo/config.toml` uses **clang + lld** as in the book. **mold** is often faster—see [Alternative linkers](https://bevy.org/learn/quick-start/getting-started/setup/#alternative-linkers) and comments in `.cargo/config.toml`.
 
-**Fast Compilation:**
-- First full workspace build still takes a while (Bevy + deps). After that, touching only `vibers-rs` or `vibe_core` rebuilds a subset.
-- Use `cargo run -p vibers-sim` when working on the server only (no Bevy).
+**Scoped work:**
+- First full client build still takes a while; afterward, small edits rebuild a subset.
+- Use `cargo check -p vibers-sim` / `cargo run -p vibers-sim` when you are not touching the client (no Bevy).
+
+### Server (`vibers-sim`) config (ADR-013, ADR-014)
+
+- Optional **`vibe.toml`** in the working directory: keys `listen`, `database_path`, `tick_hz`, `aoi_radius`, `osm_tile_url_template` (use `{z}`, `{x}`, `{y}` placeholders; default is openstreetmap.org).
+- **Environment:** same keys with prefix `VIBE_` (e.g. `VIBE_listen`, `VIBE_osm_tile_url_template`).
+- **CLI overrides:** `vibers-sim --listen 0.0.0.0:4747 --database-path ./data/regions.db --tick-hz 30 --aoi-radius 800 --osm-tile-url-template 'https://…/{z}/{x}/{y}.png'`
+- The server sends **`osm_tile_url_template`** in the handshake so online clients use the same tile source (ADR-014).
+- **Before schema upgrades:** copy the SQLite file (ADR-013); migrations run automatically on sim startup.
+
+**Wire format (ADR-008–009):** TCP length-delimited frames, little-endian length; each frame body is an **app frame** (`protocol_version` + `message_kind` + `request_id` + postcard payload). `PROTOCOL_VERSION` is **3** in `vibe_core`.
 
 This will:
 1. Compile the project in debug mode
@@ -146,6 +168,12 @@ After installing, rebuild:
 cargo clean
 cargo build -p vibers-rs --release
 ```
+
+### Runtime panic in `specialize_material_meshes` / `SkyBoxMaterial`
+
+Bevy 0.16 can panic with `entity_specialization_ticks.get(...).unwrap()` when a `MeshMaterial3d` is first spawned too late in the frame (e.g. skybox from `bevy_atmosphere`’s default **PostUpdate** hook). This project disables that hook (`bevy_atmosphere` without the `detection` feature) and spawns the skybox in **Startup** with the camera (see `free_camera::setup_camera`). If you re-enable automatic skybox detection, expect the same class of crash until you upgrade Bevy or follow upstream [bevy#18980](https://github.com/bevyengine/bevy/issues/18980).
+
+On **Wayland + GLES**, you may see `Re-initializing Gles context`; if rendering misbehaves, try forcing Vulkan: `WGPU_BACKEND=vulkan cargo run -p vibers-rs`.
 
 ### Other Issues
 

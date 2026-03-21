@@ -21,21 +21,28 @@ pub struct SimWorld {
 }
 
 impl SimWorld {
-    pub fn new(regions: Vec<RegionDto>, prims: Vec<PrimDto>, aoi_radius: f32) -> Self {
+    pub fn new(mut regions: Vec<RegionDto>, prims: Vec<PrimDto>, aoi_radius: f32) -> Self {
         let mut region_sim_origin = HashMap::new();
         let n = regions.len().max(1);
         let grid_size = (n as f32).sqrt().ceil() as usize;
         let spacing = 300.0_f32;
         let grid_f = grid_size as f32;
-        for (i, r) in regions.iter().enumerate() {
-            let row = i / grid_size;
-            let col = i % grid_size;
+        // Same ordering as the offline client: sort by region id so grid indices match.
+        let mut ordered_indices: Vec<usize> = (0..regions.len()).collect();
+        ordered_indices.sort_by_key(|&i| regions[i].id);
+        for (grid_idx, &idx) in ordered_indices.iter().enumerate() {
+            let row = grid_idx / grid_size;
+            let col = grid_idx % grid_size;
             let pos = Vec3::new(
                 (col as f32 - grid_f / 2.0) * spacing,
                 0.0,
                 (row as f32 - grid_f / 2.0) * spacing,
             );
+            let r = &mut regions[idx];
             region_sim_origin.insert(r.id, pos);
+            r.sim_x = pos.x;
+            r.sim_y = pos.y;
+            r.sim_z = pos.z;
         }
         Self {
             regions,
@@ -51,11 +58,12 @@ impl SimWorld {
     pub fn spawn_avatar(&mut self) -> u64 {
         let id = self.next_avatar_id;
         self.next_avatar_id += 1;
-        let start = *self
-            .region_sim_origin
-            .values()
-            .next()
-            .unwrap_or(&Vec3::ZERO);
+        let mut ids: Vec<i64> = self.regions.iter().map(|r| r.id).collect();
+        ids.sort();
+        let start = ids
+            .first()
+            .and_then(|rid| self.region_sim_origin.get(rid).copied())
+            .unwrap_or(Vec3::ZERO);
         self.avatars.insert(
             id,
             AvatarSim {
@@ -128,6 +136,7 @@ impl SimWorld {
             .cloned()
             .collect();
 
+        // v0 multiplayer: replicate every avatar to all clients. (Regions/prims still use observer AOI.)
         let avatars: Vec<AvatarStateDto> = self
             .avatars
             .iter()
